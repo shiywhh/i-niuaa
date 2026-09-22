@@ -12,13 +12,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>i泥航</string>
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>nuaaapp</string>
-		<string>weixin</string>
-		<string>alipay</string>
-	</array>
+	<string>Nuaa Eams</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
