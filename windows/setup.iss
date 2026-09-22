@@ -1,9 +1,9 @@
-; 南航教务 Windows 安装包
+; i泥航 Windows 安装包
 ; Build: "D:\Inno Setup 6\ISCC.exe" setup.iss
 ; 输出: installer\nuaa_eams_1.1.0_setup.exe
 
-#define MyAppName "南航教务"
-#define MyAppVersion "1.1.0"
+#define MyAppName "i泥航"
+#define MyAppVersion "2.0.0"
 #define MyAppExeName "nuaa_eams.exe"
 #define ReleaseDir "D:\jiaowu\nuaa_eams\build\windows\x64\runner\Release"
 
@@ -17,7 +17,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=D:\jiaowu\nuaa_eams\installer
-OutputBaseFilename=nuaa_eams_{#MyAppVersion}_setup
+OutputBaseFilename=i-niuaa-{#MyAppVersion}-windows-setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
