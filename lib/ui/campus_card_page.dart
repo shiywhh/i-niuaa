@@ -204,9 +204,6 @@ class _CampusCardPageState extends State<CampusCardPage> {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('余额已刷新')));
     }
-
-    // 轮询订单状态：支付完成自动刷新（最多 ~3 分钟）
-    _startPolling(cashier);
   }
 
   /// 每 3 秒查一次订单状态，paystatus 变化即视为支付成功
