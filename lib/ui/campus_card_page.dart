@@ -370,7 +370,7 @@ class _CampusCardPageState extends State<CampusCardPage> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            _reveal
+                            _reveal || code.length <= 4
                                 ? _group(code)
                                 : '${code.substring(0, 4)} ******',
                             style: theme.textTheme.titleMedium,
