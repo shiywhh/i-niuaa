@@ -10,6 +10,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -89,9 +90,34 @@ class _AboutPageState extends State<AboutPage> {
                   const SizedBox(height: 8),
                   Flexible(
                     child: SingleChildScrollView(
-                      child: SelectableText(
-                        release.notes.trim(),
-                        style: const TextStyle(fontSize: 12.5, height: 1.35),
+                      child: MarkdownBody(
+                        data: release.notes.trim(),
+                        selectable: true,
+                        styleSheet:
+                            MarkdownStyleSheet.fromTheme(Theme.of(
+                              context,
+                            )).copyWith(
+                              p: const TextStyle(
+                                fontSize: 12.5,
+                                height: 1.35,
+                              ),
+                              listBullet: const TextStyle(
+                                fontSize: 12.5,
+                                height: 1.35,
+                              ),
+                              h1: const TextStyle(
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              h2: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              code: const TextStyle(
+                                fontSize: 11.5,
+                                backgroundColor: Color(0x14000000),
+                              ),
+                            ),
                       ),
                     ),
                   ),
@@ -289,7 +315,7 @@ class _AboutPageState extends State<AboutPage> {
           ListTile(
             leading: const Icon(Icons.system_update_outlined),
             title: const Text('检查更新'),
-            subtitle: Text('当前 $_version · 应用内下载安装'),
+            subtitle: Text('当前 $_version'),
             trailing: _checking
                 ? const SizedBox(
                     width: 18,
