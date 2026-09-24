@@ -156,7 +156,7 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
           child: Row(
             children: [
               SizedBox(
-                width: 40,
+                width: 50,
                 child: Text(
                   '第${period.index}节',
                   style: const TextStyle(
