@@ -58,7 +58,9 @@ Future<void> showUpdateAvailableDialog(
             ),
             if (release.notes.trim().isNotEmpty) ...[
               const SizedBox(height: 8),
-              Flexible(
+              // 限高：日志短则框矮，长了内部滚动，不把弹窗撑满全屏
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 240),
                 child: SingleChildScrollView(
                   child: MarkdownBody(
                     data: release.notes.trim(),
