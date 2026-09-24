@@ -10,6 +10,9 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 仓库（owner/repo）：releases 页与 API 都从这拼
 const repoSlug = 'shiywhh/i-niuaa';
@@ -112,6 +115,46 @@ Future<ReleaseInfo> fetchLatestRelease() async {
     data['body'] is String ? data['body'] as String : '',
     assets,
   );
+}
+
+/// 自动检查更新开关（启动时静默检查用）
+class UpdateSettings {
+  UpdateSettings._();
+  static final instance = UpdateSettings._();
+
+  static const _key = 'update_auto_check_v1';
+
+  final ValueNotifier<int> revision = ValueNotifier(0);
+  var autoCheck = true;
+
+  Future<void> load() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      autoCheck = p.getBool(_key) ?? true;
+    } catch (_) {}
+    revision.value++;
+  }
+
+  Future<void> setAutoCheck(bool value) async {
+    autoCheck = value;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_key, value);
+    } catch (_) {}
+    revision.value++;
+  }
+}
+
+/// 启动静默检查：开关关着 / 无新版 / 网络失败 一律返回 null（不抛）
+Future<ReleaseInfo?> silentCheckForUpdate() async {
+  if (!UpdateSettings.instance.autoCheck) return null;
+  try {
+    final release = await fetchLatestRelease();
+    final info = await PackageInfo.fromPlatform();
+    return isNewer(info.version, release.tag) ? release : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 /// 下载安装包到 [savePath]（直连 browser_download_url，会经历

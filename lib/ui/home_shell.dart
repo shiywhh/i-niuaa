@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../core/app_updater.dart';
 import '../core/period_times.dart';
 import '../core/session.dart';
 import '../core/timetable_ics.dart';
@@ -30,6 +31,32 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // 启动静默检查更新：有新版给一条可点的 SnackBar（开关在关于页）
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoUpdateCheck());
+  }
+
+  Future<void> _autoUpdateCheck() async {
+    await UpdateSettings.instance.load();
+    final release = await silentCheckForUpdate();
+    if (release == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('发现新版本 ${release.tag}'),
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: '更新',
+          onPressed: () {
+            if (mounted) showUpdateAvailableDialog(context, release);
+          },
+        ),
+      ),
+    );
+  }
+
   // 课表页顶部两行的收起状态：AppBar 按钮写入，课表页监听
   final ValueNotifier<bool> _ttCollapsed = ValueNotifier(false);
   late final _pages = [
@@ -160,10 +187,10 @@ class _HomeShellState extends State<HomeShell> {
         title: const Text('i泥航'),
         actions: [
           // 展开/收起课表页顶部两行：只在课表 tab 出现，位于退出登录左侧
-          // 节次时间设置：只在课表 tab 出现，位于收起按钮左侧
+          // 课表设置（节次时间 + 上课提醒）：只在课表 tab 出现
           if (_tab == 0)
             IconButton(
-              tooltip: '节次时间设置',
+              tooltip: '课表设置',
               icon: const Icon(Icons.schedule_outlined),
               onPressed: () => Navigator.push(
                 context,
