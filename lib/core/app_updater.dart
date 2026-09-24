@@ -18,6 +18,45 @@ import 'package:shared_preferences/shared_preferences.dart';
 const repoSlug = 'shiywhh/i-niuaa';
 const releasesUrl = 'https://github.com/$repoSlug/releases';
 
+/// 下载镜像源：prefix 拼在 browser_download_url 前面
+class DownloadMirror {
+  final String key;
+  final String name;
+  final String? prefix;
+  const DownloadMirror(this.key, this.name, this.prefix);
+
+  String urlFor(String githubUrl) =>
+      prefix == null ? githubUrl : '$prefix$githubUrl';
+}
+
+/// 顺序即手动列表顺序；直连永远在列（测速失败时也可兜底再试）
+const downloadMirrors = <DownloadMirror>[
+  DownloadMirror('direct', 'GitHub 直连', null),
+  DownloadMirror('ghfast', 'ghfast.top', 'https://ghfast.top/'),
+  DownloadMirror('ghproxy', 'gh-proxy.com', 'https://gh-proxy.com/'),
+  DownloadMirror('moeyy', 'Moeyy 加速', 'https://github.moeyy.xyz/'),
+];
+
+DownloadMirror? mirrorByKey(String key) {
+  for (final m in downloadMirrors) {
+    if (m.key == key) return m;
+  }
+  return null;
+}
+
+/// 按模式排出尝试顺序：auto = 测速结果（快->慢）在前、失败的兜底在后；
+/// 手动 = 选中的镜像优先，其余照测速/默认顺序跟上
+List<DownloadMirror> orderMirrorsFor(String mode, List<DownloadMirror> ranked) {
+  final chosen = mode == 'auto' ? null : mirrorByKey(mode);
+  return [
+    ?chosen,
+    ...ranked.where((m) => m.key != chosen?.key),
+    ...downloadMirrors.where(
+      (m) => m.key != chosen?.key && ranked.every((r) => r.key != m.key),
+    ),
+  ];
+}
+
 /// 一个 release 资产（安装包）
 class ReleaseAsset {
   final String name;
@@ -123,14 +162,19 @@ class UpdateSettings {
   static final instance = UpdateSettings._();
 
   static const _key = 'update_auto_check_v1';
+  static const _mirrorKey = 'update_mirror_v1';
 
   final ValueNotifier<int> revision = ValueNotifier(0);
   var autoCheck = true;
+
+  /// 'auto'（测速选最快）或某个镜像 key
+  var mirrorMode = 'auto';
 
   Future<void> load() async {
     try {
       final p = await SharedPreferences.getInstance();
       autoCheck = p.getBool(_key) ?? true;
+      mirrorMode = p.getString(_mirrorKey) ?? 'auto';
     } catch (_) {}
     revision.value++;
   }
@@ -140,6 +184,15 @@ class UpdateSettings {
     try {
       final p = await SharedPreferences.getInstance();
       await p.setBool(_key, value);
+    } catch (_) {}
+    revision.value++;
+  }
+
+  Future<void> setMirrorMode(String value) async {
+    mirrorMode = value;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_mirrorKey, value);
     } catch (_) {}
     revision.value++;
   }
@@ -182,4 +235,78 @@ Future<void> downloadPackage(
   if (!File(savePath).existsSync() || File(savePath).lengthSync() == 0) {
     throw const FormatException('下载内容为空');
   }
+}
+
+/// 单镜像测速：Range 拉 128KB 计时（毫秒），失败返回 null
+Future<int?> probeMirror(String githubUrl, DownloadMirror m) async {
+  final sw = Stopwatch()..start();
+  try {
+    final res =
+        await Dio(
+              BaseOptions(
+                connectTimeout: const Duration(seconds: 6),
+                headers: {'User-Agent': 'i-niuaa', 'Range': 'bytes=0-131071'},
+              ),
+            )
+            .get<List<int>>(
+              m.urlFor(githubUrl),
+              options: Options(responseType: ResponseType.bytes),
+            )
+            .timeout(const Duration(seconds: 10));
+    sw.stop();
+    if (res.data == null || res.data!.isEmpty) return null;
+    return sw.elapsedMilliseconds;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// 并行测速全部镜像，返回可达镜像按快 -> 慢排序
+Future<List<DownloadMirror>> rankMirrors(String githubUrl) async {
+  final results = await Future.wait(
+    downloadMirrors.map(
+      (m) async => MapEntry(m, await probeMirror(githubUrl, m)),
+    ),
+  );
+  final ok = results.where((e) => e.value != null).toList()
+    ..sort((a, b) => a.value!.compareTo(b.value!));
+  return ok.map((e) => e.key).toList();
+}
+
+/// 按镜像顺序下载：auto 先并行测速选最快，手动则选中源优先；
+/// 任一源失败自动换下一家。成功返回实际使用的镜像，全部失败抛异常
+Future<DownloadMirror> downloadPackageWithMirror({
+  required String githubUrl,
+  required String savePath,
+  required String mirrorMode,
+  void Function(int received, int total)? onProgress,
+  void Function(String mirrorName)? onMirror,
+  CancelToken? cancelToken,
+}) async {
+  final ranked = mirrorMode == 'auto'
+      ? await rankMirrors(githubUrl)
+      : const <DownloadMirror>[];
+  final order = orderMirrorsFor(mirrorMode, ranked);
+  for (final m in order) {
+    if (cancelToken?.isCancelled ?? false) {
+      throw DioException(
+        requestOptions: RequestOptions(path: githubUrl),
+        type: DioExceptionType.cancel,
+      );
+    }
+    onMirror?.call(m.name);
+    try {
+      await downloadPackage(
+        m.urlFor(githubUrl),
+        savePath,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+      );
+      return m;
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.cancel) rethrow;
+      // 换下一个源
+    }
+  }
+  throw const FormatException('所有下载源均下载失败');
 }

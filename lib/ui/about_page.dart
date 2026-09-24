@@ -27,9 +27,9 @@ Future<void> openExternal(BuildContext context, String url) async {
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   } catch (_) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('无法打开链接')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('无法打开链接')));
     }
   }
 }
@@ -63,31 +63,79 @@ Future<void> showUpdateAvailableDialog(
                   child: MarkdownBody(
                     data: release.notes.trim(),
                     selectable: true,
-                    styleSheet: MarkdownStyleSheet.fromTheme(
-                      Theme.of(context),
-                    ).copyWith(
-                      p: const TextStyle(fontSize: 12.5, height: 1.35),
-                      listBullet: const TextStyle(
-                        fontSize: 12.5,
-                        height: 1.35,
-                      ),
-                      h1: const TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      h2: const TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      code: const TextStyle(
-                        fontSize: 11.5,
-                        backgroundColor: Color(0x14000000),
-                      ),
-                    ),
+                    styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
+                        .copyWith(
+                          p: const TextStyle(fontSize: 12.5, height: 1.35),
+                          listBullet: const TextStyle(
+                            fontSize: 12.5,
+                            height: 1.35,
+                          ),
+                          h1: const TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          h2: const TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          code: const TextStyle(
+                            fontSize: 11.5,
+                            backgroundColor: Color(0x14000000),
+                          ),
+                        ),
                   ),
                 ),
               ),
             ],
+            const SizedBox(height: 10),
+            // 下载源：自动测速选最快，或手动指定镜像
+            StatefulBuilder(
+              builder: (ctx, setDialogState) => Row(
+                children: [
+                  const Text(
+                    '下载源',
+                    style: TextStyle(fontSize: 12.5, color: Colors.black54),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: UpdateSettings.instance.mirrorMode,
+                      isDense: true,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: 'auto',
+                          child: Text(
+                            '自动测速（最快）',
+                            style: TextStyle(fontSize: 12.5),
+                          ),
+                        ),
+                        for (final m in downloadMirrors)
+                          DropdownMenuItem(
+                            value: m.key,
+                            child: Text(
+                              m.name,
+                              style: const TextStyle(fontSize: 12.5),
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) {
+                        if (v == null) return;
+                        UpdateSettings.instance.setMirrorMode(v);
+                        setDialogState(() {});
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -149,6 +197,11 @@ Future<void> downloadAndInstall(
   // 进度对话框（不可点外部关闭，可取消）
   final token = CancelToken();
   final progress = ValueNotifier<List<int>>(const [0, 0]); // [已收, 总]
+  final status = ValueNotifier<String>(
+    UpdateSettings.instance.mirrorMode == 'auto'
+        ? '正在测速，选择最快下载源…'
+        : '下载源：${mirrorByKey(UpdateSettings.instance.mirrorMode)?.name ?? ''}',
+  );
   var dialogOpen = true;
   BuildContext? dialogCtx;
 
@@ -168,23 +221,37 @@ Future<void> downloadAndInstall(
       dialogCtx = ctx;
       return AlertDialog(
         title: Text('下载 ${asset.name}'),
-        content: ValueListenableBuilder<List<int>>(
-          valueListenable: progress,
-          builder: (_, v, _) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              LinearProgressIndicator(value: v[1] > 0 ? v[0] / v[1] : null),
-              const SizedBox(height: 10),
-              Text(
-                v[1] > 0
-                    ? '${(v[0] / 1048576).toStringAsFixed(1)} / '
-                        '${(v[1] / 1048576).toStringAsFixed(1)} MB'
-                    : '${(v[0] / 1048576).toStringAsFixed(1)} MB',
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ValueListenableBuilder<String>(
+              valueListenable: status,
+              builder: (_, v, _) => Text(
+                v,
+                style: const TextStyle(fontSize: 11, color: Colors.black45),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            ValueListenableBuilder<List<int>>(
+              valueListenable: progress,
+              builder: (_, v, _) => Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  LinearProgressIndicator(value: v[1] > 0 ? v[0] / v[1] : null),
+                  const SizedBox(height: 10),
+                  Text(
+                    v[1] > 0
+                        ? '${(v[0] / 1048576).toStringAsFixed(1)} / '
+                              '${(v[1] / 1048576).toStringAsFixed(1)} MB'
+                        : '${(v[0] / 1048576).toStringAsFixed(1)} MB',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -201,12 +268,15 @@ Future<void> downloadAndInstall(
 
   String? failure;
   try {
-    await downloadPackage(
-      asset.url,
-      file.path,
+    final used = await downloadPackageWithMirror(
+      githubUrl: asset.url,
+      savePath: file.path,
+      mirrorMode: UpdateSettings.instance.mirrorMode,
       onProgress: (r, t) => progress.value = [r, t],
+      onMirror: (name) => status.value = '下载源：$name',
       cancelToken: token,
     );
+    status.value = '下载源：${used.name}';
   } on DioException catch (e) {
     if (e.type != DioExceptionType.cancel) {
       failure = '下载失败，请检查网络后重试，或改用「前往下载页」';
@@ -245,18 +315,18 @@ Future<void> downloadAndInstall(
     } else if (Platform.isWindows) {
       await Process.start(file.path, const [], mode: ProcessStartMode.detached);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('安装器已启动，按提示完成更新')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('安装器已启动，按提示完成更新')));
       }
     } else {
       if (context.mounted) openExternal(context, release.url);
     }
   } catch (e) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('无法启动安装：$e\n安装包已存至 ${file.path}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('无法启动安装：$e\n安装包已存至 ${file.path}')));
     }
   }
 }

@@ -54,4 +54,42 @@ void main() {
     expect(repoSlug, 'shiywhh/i-niuaa');
     expect(releasesUrl, 'https://github.com/shiywhh/i-niuaa/releases');
   });
+
+  group('镜像源', () {
+    const assetUrl =
+        'https://github.com/shiywhh/i-niuaa/releases/download/v2.4.0/i-niuaa-2.4.0-android-arm64.apk';
+
+    test('urlFor：直连原样、加速源拼前缀', () {
+      final direct = mirrorByKey('direct')!;
+      final ghfast = mirrorByKey('ghfast')!;
+      expect(direct.urlFor(assetUrl), assetUrl);
+      expect(ghfast.urlFor(assetUrl), 'https://ghfast.top/$assetUrl');
+    });
+
+    test('orderMirrorsFor：auto 按测速排序，失败源兜底', () {
+      final ranked = [mirrorByKey('ghfast')!, mirrorByKey('ghproxy')!];
+      final order = orderMirrorsFor('auto', ranked);
+      // 测速成功的在前，直连和 Moeyy 失败兜底在后（默认序）
+      expect(order.map((m) => m.key).toList(), [
+        'ghfast',
+        'ghproxy',
+        'direct',
+        'moeyy',
+      ]);
+    });
+
+    test('orderMirrorsFor：手动指定源优先且不重复', () {
+      final ranked = [mirrorByKey('direct')!, mirrorByKey('ghfast')!];
+      final order = orderMirrorsFor('moeyy', ranked);
+      expect(order.map((m) => m.key).toList(), [
+        'moeyy',
+        'direct',
+        'ghfast',
+        'ghproxy',
+      ]);
+      final order2 = orderMirrorsFor('direct', ranked);
+      expect(order2.first.key, 'direct');
+      expect(order2.where((m) => m.key == 'direct').length, 1);
+    });
+  });
 }
