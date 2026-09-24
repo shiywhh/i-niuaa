@@ -1,9 +1,8 @@
 // Engine | Flutter 3.x / Dart 3 | lib/ui/period_times_page.dart
-// 课表设置（原节次时间设置，编辑器交互抄自 Sked 的 period_times_page）：
+// 节次时间编辑页（从课表设置跳入，编辑器交互抄自 Sked 的
+// period_times_page，按本项目裁剪）：
 //   - 固定 11 节，与课表时间栏一致，只改时刻不增删节
 //   - 顶部切换将军路/明故宫/天目湖三校区作息预设（三四节错峰口径已钉死）
-//   - 显示设置：周六/周日列、非本周课、课卡内容与对齐、行高、
-//     列宽模式、时间栏时刻（改动即时生效）
 //   - 每行显示时长 / 距上一节间隔；结束 <= 开始、与上一节重叠标红，
 //     有非法行时不落盘（Sked 同策略），改合法后自动写入
 // Deps: shared_preferences
@@ -11,7 +10,6 @@
 import 'package:flutter/material.dart';
 
 import '../core/period_times.dart';
-import '../core/timetable_settings.dart';
 
 class PeriodTimesPage extends StatefulWidget {
   const PeriodTimesPage({super.key});
@@ -24,7 +22,6 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
   List<PeriodTime> _times = const [];
   var _loading = true;
   var _pickerOpen = false;
-  final _rowHeightCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -32,20 +29,11 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
     _init();
   }
 
-  @override
-  void dispose() {
-    _rowHeightCtrl.dispose();
-    super.dispose();
-  }
-
   Future<void> _init() async {
     await PeriodTimesStore.instance.ensureLoaded();
-    await TimetableSettings.instance.load();
     if (!mounted) return;
     setState(() {
       _times = List.of(PeriodTimesStore.instance.times);
-      _rowHeightCtrl.text = TimetableSettings.instance.rowHeight
-          .toStringAsFixed(0);
       _loading = false;
     });
   }
@@ -114,14 +102,13 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
   Widget build(BuildContext context) {
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('课表设置')),
+        appBar: AppBar(title: const Text('节次时间')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
-    final s = TimetableSettings.instance;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('课表设置'),
+        title: const Text('节次时间'),
         actions: [
           IconButton(
             tooltip: '恢复默认',
@@ -133,7 +120,6 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
         children: [
-          _sectionTitle('节次时间'),
           // 校区作息预设切换（手动改时刻不切档，仅覆盖时间值）
           SegmentedButton<String>(
             segments: [
@@ -143,150 +129,12 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
             selected: {PeriodTimesStore.instance.campus},
             onSelectionChanged: (sel) => _selectCampus(sel.first),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           ...[for (var i = 0; i < _times.length; i++) _periodRow(i)],
-          const SizedBox(height: 16),
-          _sectionTitle('显示'),
-          _settingsCard([
-            SwitchListTile(
-              title: const Text('显示周六'),
-              value: s.showSaturday,
-              onChanged: (v) {
-                s.setShowSaturday(v);
-                setState(() {});
-              },
-            ),
-            SwitchListTile(
-              title: const Text('显示周日'),
-              value: s.showSunday,
-              onChanged: (v) {
-                s.setShowSunday(v);
-                setState(() {});
-              },
-            ),
-            SwitchListTile(
-              title: const Text('显示非本周课程'),
-              subtitle: const Text('关闭后，选具体周时只显示该周在上的课'),
-              value: s.showNonCurrentWeek,
-              onChanged: (v) {
-                s.setShowNonCurrentWeek(v);
-                setState(() {});
-              },
-            ),
-            SwitchListTile(
-              title: const Text('时间栏显示时刻'),
-              value: s.showRailTimes,
-              onChanged: (v) {
-                s.setShowRailTimes(v);
-                setState(() {});
-              },
-            ),
-          ]),
-          const SizedBox(height: 12),
-          _settingsCard([
-            SwitchListTile(
-              title: const Text('课卡显示教室'),
-              value: s.cardShowRoom,
-              onChanged: (v) {
-                s.setCardShowRoom(v);
-                setState(() {});
-              },
-            ),
-            SwitchListTile(
-              title: const Text('课卡显示老师'),
-              value: s.cardShowTeacher,
-              onChanged: (v) {
-                s.setCardShowTeacher(v);
-                setState(() {});
-              },
-            ),
-            SwitchListTile(
-              title: const Text('全部周视图显示"N周"角标'),
-              value: s.cardShowWeeksTag,
-              onChanged: (v) {
-                s.setCardShowWeeksTag(v);
-                setState(() {});
-              },
-            ),
-            SwitchListTile(
-              title: const Text('课卡文字水平居中'),
-              value: s.cardCenterH,
-              onChanged: (v) {
-                s.setCardCenterH(v);
-                setState(() {});
-              },
-            ),
-            SwitchListTile(
-              title: const Text('课卡文字垂直居中'),
-              value: s.cardCenterV,
-              onChanged: (v) {
-                s.setCardCenterV(v);
-                setState(() {});
-              },
-            ),
-          ]),
-          const SizedBox(height: 12),
-          _settingsCard([
-            SwitchListTile(
-              title: const Text('列宽塞满屏幕'),
-              subtitle: const Text('关闭时保持最小列宽，超出横向滚动'),
-              value: s.fitWidth,
-              onChanged: (v) {
-                s.setFitWidth(v);
-                setState(() {});
-              },
-            ),
-            ListTile(
-              title: const Text('行高（像素）'),
-              subtitle: const Text('默认 80，范围 56 - 128'),
-              trailing: SizedBox(
-                width: 84,
-                child: TextField(
-                  controller: _rowHeightCtrl,
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.center,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    border: OutlineInputBorder(),
-                  ),
-                  onSubmitted: (v) => _applyRowHeight(v),
-                ),
-              ),
-            ),
-          ]),
         ],
       ),
     );
   }
-
-  void _applyRowHeight(String v) {
-    final h = double.tryParse(v);
-    if (h == null) return;
-    TimetableSettings.instance.setRowHeight(h);
-    setState(() {
-      _rowHeightCtrl.text = TimetableSettings.instance.rowHeight
-          .toStringAsFixed(0);
-    });
-  }
-
-  Widget _sectionTitle(String t) => Padding(
-    padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
-    child: Text(
-      t,
-      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-    ),
-  );
-
-  Widget _settingsCard(List<Widget> children) => Card(
-    margin: EdgeInsets.zero,
-    elevation: 0,
-    clipBehavior: Clip.antiAlias,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(10),
-      side: const BorderSide(color: Colors.black12),
-    ),
-    child: Column(children: children),
-  );
 
   Widget _periodRow(int i) {
     final period = _times[i];

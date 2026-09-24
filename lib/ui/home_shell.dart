@@ -19,7 +19,7 @@ import 'election_page.dart';
 import 'exams_page.dart';
 import 'grades_page.dart';
 import 'login_page.dart';
-import 'period_times_page.dart';
+import 'course_settings_page.dart';
 import 'timetable_page.dart';
 
 class HomeShell extends StatefulWidget {
@@ -191,10 +191,10 @@ class _HomeShellState extends State<HomeShell> {
           if (_tab == 0)
             IconButton(
               tooltip: '课表设置',
-              icon: const Icon(Icons.schedule_outlined),
+              icon: const Icon(Icons.tune_outlined),
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const PeriodTimesPage()),
+                MaterialPageRoute(builder: (_) => const CourseSettingsPage()),
               ),
             ),
           // 课表导出/分享：只在课表 tab 出现，位于节次时间与收起之间
@@ -202,13 +202,9 @@ class _HomeShellState extends State<HomeShell> {
             PopupMenuButton<String>(
               tooltip: '导出/分享课表',
               icon: const Icon(Icons.ios_share),
-              onSelected: (v) =>
-                  v == 'ics' ? _exportIcs() : _shareIcs(),
+              onSelected: (v) => v == 'ics' ? _exportIcs() : _shareIcs(),
               itemBuilder: (_) => const [
-                PopupMenuItem(
-                  value: 'ics',
-                  child: Text('导出为日历文件'),
-                ),
+                PopupMenuItem(value: 'ics', child: Text('导出为日历文件')),
                 PopupMenuItem(value: 'share', child: Text('分享')),
               ],
             ),

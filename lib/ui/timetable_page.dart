@@ -847,7 +847,7 @@ class _TimetablePageState extends State<TimetablePage> {
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              const labelW = 46.0, minColW = 90.0, headH = 36.0;
+              const labelW = 52.0, minColW = 90.0, headH = 36.0;
               final rowH = s.rowHeight;
               final dayCount = days.length;
               final availW = constraints.maxWidth - labelW;
@@ -1015,13 +1015,6 @@ class _TimetablePageState extends State<TimetablePage> {
     );
   }
 
-  /// 跨两个及以上显示行的卡算高卡，课名多给几行
-  bool _isTall(CourseSpan s) {
-    final top = _rowOf(s.startUnit).clamp(0, _displayUnits.length - 1);
-    final end = _rowOf(s.endUnit).clamp(top, _displayUnits.length - 1);
-    return end > top;
-  }
-
   /// 一天的列：节次横线 + 该天所有课卡（Stack 绝对定位）。
   /// isToday 列微染底色，进行中的节次行加边框强调
   Widget _dayColumn(
@@ -1137,7 +1130,6 @@ class _TimetablePageState extends State<TimetablePage> {
             ),
             child: _spanCard(
               shown,
-              tall: _isTall(shown),
               key: ValueKey('$pick:${shown.name}:${shown.startUnit}'),
             ),
           ),
@@ -1205,7 +1197,7 @@ class _TimetablePageState extends State<TimetablePage> {
   /// 未开始/已结课在卡片底部中央加标注。
   /// 显示内容（教室/老师/周次角标）与水平/垂直居中走显示设置；
   /// 长按弹详情
-  Widget _spanCard(CourseSpan c, {required bool tall, Key? key}) {
+  Widget _spanCard(CourseSpan c, {Key? key}) {
     final st = _stateOf(c);
     final hue = _colorOf(c.name);
     final settings = TimetableSettings.instance;
@@ -1257,8 +1249,6 @@ class _TimetablePageState extends State<TimetablePage> {
                   child: Text(
                     c.name,
                     softWrap: true,
-                    maxLines: tall ? 6 : 2,
-                    overflow: TextOverflow.ellipsis,
                     textAlign: settings.cardCenterH
                         ? TextAlign.center
                         : TextAlign.start,
@@ -1272,8 +1262,6 @@ class _TimetablePageState extends State<TimetablePage> {
                 if (settings.cardShowRoom && c.room.isNotEmpty)
                   Text(
                     c.room,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 9.5,
                       color: textColor.withValues(alpha: .85),
@@ -1282,8 +1270,6 @@ class _TimetablePageState extends State<TimetablePage> {
                 if (settings.cardShowTeacher && c.teacher.isNotEmpty)
                   Text(
                     c.teacher,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 9,
                       color: textColor.withValues(alpha: .75),
@@ -1294,8 +1280,6 @@ class _TimetablePageState extends State<TimetablePage> {
                     c.weeks.isNotEmpty)
                   Text(
                     '${c.weeks}周',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 9,
                       color: textColor.withValues(alpha: .7),
