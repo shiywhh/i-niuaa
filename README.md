@@ -39,8 +39,7 @@ flutter run -d windows   # 或 -d <android-device>
 ```
 
 - Windows 桌面：需要 Visual Studio（C++ 桌面开发 workload）
-- Android：`flutter build apk --release --split-per-abi`
-- iOS：需要 macOS + Xcode（真机侧载 / 个人签名）
+- Android：`flutter build apk --release --target-platform android-arm64`
 
 ## 测试
 
