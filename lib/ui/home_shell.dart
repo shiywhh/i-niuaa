@@ -1,9 +1,10 @@
 // Engine | Flutter 3.x / Dart 3 | lib/ui/home_shell.dart
 // 底部六栏壳：课表 / 选课 / 成绩 / 考试 / 校园卡 / 关于，右上角分享与退出登录
 
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:file_selector/file_selector.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -78,19 +79,26 @@ class _HomeShellState extends State<HomeShell> {
   String get _icsFileName =>
       '${sanitizeFileName(TimetableSnapshot.semesterName)}.ics';
 
-  /// 导出为日历文件：系统保存对话框，写到用户选的位置
+  /// 导出为日历文件：系统保存对话框，写到用户选的位置。
+  /// file_picker 的 saveFile 在 Android 走 SAF（插件负责写入，
+  /// 返回 content:// URI），桌面返回普通路径由我们自行写入
   Future<void> _exportIcs() async {
     final ics = _buildIcs();
     if (ics == null) return;
     try {
-      final location = await getSaveLocation(
-        suggestedName: _icsFileName,
+      final result = await FilePicker.saveFile(
+        fileName: _icsFileName,
+        type: FileType.custom,
+        allowedExtensions: const ['ics'],
+        bytes: utf8.encode(ics),
       );
-      if (location == null) return; // 用户取消
-      await File(location.path).writeAsString(ics);
-      _toast('已导出：${location.path}');
-    } on UnsupportedError {
-      _toast('此平台不支持导出，请改用「分享」');
+      if (result == null) return; // 用户取消
+      if (result.startsWith('content://')) {
+        _toast('已导出到所选位置');
+      } else {
+        await File(result).writeAsString(ics);
+        _toast('已导出：$result');
+      }
     } catch (e) {
       _toast('导出失败：$e');
     }
