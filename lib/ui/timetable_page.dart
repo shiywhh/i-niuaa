@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/current_semester.dart';
 import '../core/models.dart';
+import '../core/period_times.dart';
 import '../core/session.dart';
 
 /// 选中的教学周里一门课的状态
@@ -109,7 +110,14 @@ class _TimetablePageState extends State<TimetablePage> {
     _headHCtrl.addListener(_syncHeadToBody);
     _bodyHCtrl.addListener(_syncBodyToHead);
     widget.collapsed?.addListener(_onCollapsedChanged);
+    // 节次时间：首次加载 + 设置页保存后刷新时间栏
+    PeriodTimesStore.instance.revision.addListener(_onPeriodTimesChanged);
+    PeriodTimesStore.instance.ensureLoaded();
     _load();
+  }
+
+  void _onPeriodTimesChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -124,6 +132,7 @@ class _TimetablePageState extends State<TimetablePage> {
 
   @override
   void dispose() {
+    PeriodTimesStore.instance.revision.removeListener(_onPeriodTimesChanged);
     widget.collapsed?.removeListener(_onCollapsedChanged);
     _headHCtrl
       ..removeListener(_syncHeadToBody)
@@ -839,7 +848,11 @@ class _TimetablePageState extends State<TimetablePage> {
                               child: Column(
                                 children: [
                                   for (final u in _displayUnits)
-                                    _railCell('第${u <= 3 ? u + 1 : u - 1}节'),
+                                    _railCell(
+                                      '第${u <= 3 ? u + 1 : u - 1}节',
+                                      time: PeriodTimesStore.instance
+                                          .of(u <= 3 ? u + 1 : u - 1),
+                                    ),
                                 ],
                               ),
                             ),
@@ -1161,7 +1174,8 @@ class _TimetablePageState extends State<TimetablePage> {
     ),
   );
 
-  Widget _railCell(String t) => Container(
+  /// 时间栏格：节号 + 上下课时刻（设置过才有）；行高 80 固定
+  Widget _railCell(String t, {PeriodTime? time}) => Container(
     height: 80,
     alignment: Alignment.center,
     decoration: const BoxDecoration(
@@ -1170,6 +1184,29 @@ class _TimetablePageState extends State<TimetablePage> {
         bottom: BorderSide(color: Colors.black12),
       ),
     ),
-    child: Text(t, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          t,
+          style: const TextStyle(fontSize: 11, color: Colors.black54),
+        ),
+        if (time != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            formatMinutes(time.startMinutes),
+            style: const TextStyle(fontSize: 8.5, color: Colors.black45),
+          ),
+          Text(
+            formatMinutes(time.endMinutes),
+            style: const TextStyle(
+              fontSize: 8.5,
+              height: 1.15,
+              color: Colors.black45,
+            ),
+          ),
+        ],
+      ],
+    ),
   );
 }

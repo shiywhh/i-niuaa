@@ -4,11 +4,13 @@
 import 'package:flutter/material.dart';
 
 import '../core/session.dart';
+import 'about_page.dart';
 import 'campus_card_page.dart';
 import 'election_page.dart';
 import 'exams_page.dart';
 import 'grades_page.dart';
 import 'login_page.dart';
+import 'period_times_page.dart';
 import 'timetable_page.dart';
 
 class HomeShell extends StatefulWidget {
@@ -28,6 +30,7 @@ class _HomeShellState extends State<HomeShell> {
     const GradesPage(),
     const ExamsPage(),
     const CampusCardPage(),
+    const AboutPage(),
   ];
 
   @override
@@ -73,6 +76,16 @@ class _HomeShellState extends State<HomeShell> {
         title: const Text('i泥航'),
         actions: [
           // 展开/收起课表页顶部两行：只在课表 tab 出现，位于退出登录左侧
+          // 节次时间设置：只在课表 tab 出现，位于收起按钮左侧
+          if (_tab == 0)
+            IconButton(
+              tooltip: '节次时间设置',
+              icon: const Icon(Icons.schedule_outlined),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PeriodTimesPage()),
+              ),
+            ),
           if (_tab == 0)
             ValueListenableBuilder<bool>(
               valueListenable: _ttCollapsed,
@@ -118,6 +131,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.badge_outlined),
             selectedIcon: Icon(Icons.badge),
             label: '校园卡',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.info_outline),
+            selectedIcon: Icon(Icons.info),
+            label: '关于',
           ),
         ],
       ),
