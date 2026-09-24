@@ -3,7 +3,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:nuaa_eams/core/update_check.dart';
+import 'package:nuaa_eams/core/app_updater.dart';
 
 void main() {
   group('parseVersion', () {

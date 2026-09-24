@@ -1,14 +1,21 @@
 // Engine | Flutter 3.x / Dart 3 | lib/ui/about_page.dart
-// 关于页（tab 栏最后一项）：版本信息、检查更新（GitHub Releases，
-// 发现新版弹窗附 release 说明 + 跳转下载页）、仓库链接、数据来源、
-// 免责声明、开源许可（Flutter 自带 LicensePage 列全部依赖）。
-// Deps: package_info_plus, url_launcher, dio
+// 关于页（tab 栏最后一项）：版本信息、检查更新（应用内下载安装：
+// Android 拉起系统安装器 / Windows 直接启动安装包）、仓库链接、
+// 数据来源、免责声明、开源许可（Flutter 自带 LicensePage 列全部依赖）。
+//   - 下载直连 GitHub browser_download_url，失败可降级"前往下载页"
+//   - Android 首次安装需在系统弹窗里授权"允许安装未知应用"
+// Deps: package_info_plus, url_launcher, dio, open_filex, path_provider
 
+import 'dart:io';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../core/update_check.dart';
+import '../core/app_updater.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
@@ -52,8 +59,7 @@ class _AboutPageState extends State<AboutPage> {
     }
   }
 
-  /// 检查更新：最新 tag 比本地新则弹窗（附说明，可去下载页），
-  /// 否则/失败都给轻提示
+  /// 检查更新：最新 tag 比本地新则弹窗（说明 + 应用内下载），否则/失败给轻提示
   Future<void> _checkUpdate() async {
     if (_checking) return;
     setState(() => _checking = true);
@@ -98,12 +104,21 @@ class _AboutPageState extends State<AboutPage> {
               onPressed: () => Navigator.pop(ctx),
               child: const Text('稍后'),
             ),
-            FilledButton(
+            TextButton(
               onPressed: () {
                 Navigator.pop(ctx);
                 _open(release.url);
               },
-              child: const Text('前往下载'),
+              child: const Text('前往下载页'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _downloadAndInstall(release);
+              },
+              child: Text(
+                Platform.isAndroid ? '下载安装' : '下载更新',
+              ),
             ),
           ],
         ),
@@ -112,6 +127,129 @@ class _AboutPageState extends State<AboutPage> {
       if (mounted) _toast('检查更新失败，请检查网络后重试');
     } finally {
       if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  /// 应用内下载并拉起安装：
+  ///   Android -> 应用专属外部目录 + open_filex 拉起系统安装器
+  ///   Windows -> 下载目录 + 独立进程启动 Inno 安装包（走 UAC）
+  Future<void> _downloadAndInstall(ReleaseInfo release) async {
+    final asset = release.packageAsset(android: Platform.isAndroid);
+    if (asset == null) {
+      _open(release.url); // 资产缺失兜底：去下载页
+      return;
+    }
+    if (!mounted) return;
+
+    // 保存位置：Android 用应用专属外部目录（无需存储权限），
+    // Windows 优先下载目录，兜底临时目录
+    String dirPath;
+    if (Platform.isAndroid) {
+      final dirs = await getExternalStorageDirectories();
+      dirPath = dirs?.first.path ?? (await getTemporaryDirectory()).path;
+    } else if (Platform.isWindows) {
+      dirPath =
+          (await getDownloadsDirectory())?.path ??
+          (await getTemporaryDirectory()).path;
+    } else {
+      dirPath = (await getTemporaryDirectory()).path;
+    }
+    final file = File('$dirPath/${asset.name}');
+    if (file.existsSync()) file.deleteSync(); // 旧包清掉重下
+
+    // 进度对话框（不可点外部关闭，可取消）
+    if (!mounted) return; // 保存目录解析期间页面可能已退出
+    final token = CancelToken();
+    final progress = ValueNotifier<List<int>>(const [0, 0]); // [已收, 总]
+    var dialogOpen = true;
+    BuildContext? dialogCtx;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        dialogCtx = ctx;
+        return AlertDialog(
+          title: Text('下载 ${asset.name}'),
+          content: ValueListenableBuilder<List<int>>(
+            valueListenable: progress,
+            builder: (_, v, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LinearProgressIndicator(
+                  value: v[1] > 0 ? v[0] / v[1] : null,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  v[1] > 0
+                      ? '${(v[0] / 1048576).toStringAsFixed(1)} / '
+                          '${(v[1] / 1048576).toStringAsFixed(1)} MB'
+                      : '${(v[0] / 1048576).toStringAsFixed(1)} MB',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                token.cancel('用户取消');
+                Navigator.pop(ctx);
+              },
+              child: const Text('取消'),
+            ),
+          ],
+        );
+      },
+    );
+
+    String? failure;
+    try {
+      await downloadPackage(
+        asset.url,
+        file.path,
+        onProgress: (r, t) => progress.value = [r, t],
+        cancelToken: token,
+      );
+    } on DioException catch (e) {
+      if (e.type != DioExceptionType.cancel) {
+        failure = '下载失败，请检查网络后重试，或改用「前往下载页」';
+      }
+    } catch (_) {
+      failure = '下载失败，请检查网络后重试，或改用「前往下载页」';
+    }
+    if (dialogOpen && dialogCtx != null && dialogCtx!.mounted) {
+      dialogOpen = false;
+      Navigator.pop(dialogCtx!);
+    }
+    if (failure != null) {
+      _toast(failure);
+      return;
+    }
+
+    // 拉起安装
+    try {
+      if (Platform.isAndroid) {
+        final res = await OpenFilex.open(
+          file.path,
+          type: 'application/vnd.android.package-archive',
+        );
+        _toast(
+          res.type == ResultType.done
+              ? '开始安装，若未跳转请在系统弹窗中允许"安装未知应用"'
+              : '无法打开安装包：${res.message}',
+        );
+      } else if (Platform.isWindows) {
+        await Process.start(file.path, const [], mode: ProcessStartMode.detached);
+        _toast('安装器已启动，按提示完成更新');
+      } else {
+        _open(release.url);
+      }
+    } catch (e) {
+      _toast('无法启动安装：$e\n安装包已存至 ${file.path}');
     }
   }
 
@@ -151,7 +289,7 @@ class _AboutPageState extends State<AboutPage> {
           ListTile(
             leading: const Icon(Icons.system_update_outlined),
             title: const Text('检查更新'),
-            subtitle: Text('当前 $_version · GitHub Releases'),
+            subtitle: Text('当前 $_version · 应用内下载安装'),
             trailing: _checking
                 ? const SizedBox(
                     width: 18,
