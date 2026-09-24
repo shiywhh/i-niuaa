@@ -151,6 +151,16 @@ Future<void> downloadAndInstall(
   final progress = ValueNotifier<List<int>>(const [0, 0]); // [已收, 总]
   var dialogOpen = true;
   BuildContext? dialogCtx;
+
+  /// 幂等关闭进度框：取消按钮和下载收尾都可能触发，只允许弹一次，
+  /// 否则二次 pop 会把根路由弹掉（黑屏）
+  void closeProgress() {
+    if (!dialogOpen) return;
+    dialogOpen = false;
+    final ctx = dialogCtx;
+    if (ctx != null && ctx.mounted) Navigator.pop(ctx);
+  }
+
   showDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -180,7 +190,7 @@ Future<void> downloadAndInstall(
           TextButton(
             onPressed: () {
               token.cancel('用户取消');
-              Navigator.pop(ctx);
+              closeProgress();
             },
             child: const Text('取消'),
           ),
@@ -204,10 +214,7 @@ Future<void> downloadAndInstall(
   } catch (_) {
     failure = '下载失败，请检查网络后重试，或改用「前往下载页」';
   }
-  if (dialogOpen && dialogCtx != null && dialogCtx!.mounted) {
-    dialogOpen = false;
-    Navigator.pop(dialogCtx!);
-  }
+  closeProgress();
   if (failure != null) {
     if (context.mounted) {
       ScaffoldMessenger.of(
