@@ -115,7 +115,7 @@ Future<void> showUpdateAvailableDialog(
                         const DropdownMenuItem(
                           value: 'auto',
                           child: Text(
-                            '自动测速（最快）',
+                            '自动测延迟（最快）',
                             style: TextStyle(fontSize: 12.5),
                           ),
                         ),
@@ -201,7 +201,7 @@ Future<void> downloadAndInstall(
   final progress = ValueNotifier<List<int>>(const [0, 0]); // [已收, 总]
   final status = ValueNotifier<String>(
     UpdateSettings.instance.mirrorMode == 'auto'
-        ? '正在测速，选择最快下载源…'
+        ? '正在测延迟，选择最快下载源…'
         : '下载源：${mirrorByKey(UpdateSettings.instance.mirrorMode)?.name ?? ''}',
   );
   var dialogOpen = true;

@@ -239,7 +239,7 @@ Future<void> downloadPackage(
   }
 }
 
-/// 单镜像测速：Range 拉 128KB 计时（毫秒），失败返回 null
+/// 单镜像测延迟：Range 拉 1 字节，握手 + 响应耗时（毫秒），失败返回 null
 Future<int?> probeMirror(String githubUrl, DownloadMirror m) async {
   final sw = Stopwatch()..start();
   try {
@@ -247,23 +247,24 @@ Future<int?> probeMirror(String githubUrl, DownloadMirror m) async {
         await Dio(
               BaseOptions(
                 connectTimeout: const Duration(seconds: 6),
-                headers: {'User-Agent': 'i-niuaa', 'Range': 'bytes=0-131071'},
+                headers: {'User-Agent': 'i-niuaa', 'Range': 'bytes=0-0'},
               ),
             )
             .get<List<int>>(
               m.urlFor(githubUrl),
               options: Options(responseType: ResponseType.bytes),
             )
-            .timeout(const Duration(seconds: 10));
+            .timeout(const Duration(seconds: 8));
     sw.stop();
-    if (res.data == null || res.data!.isEmpty) return null;
+    final code = res.statusCode ?? 0;
+    if (code >= 400) return null;
     return sw.elapsedMilliseconds;
   } catch (_) {
     return null;
   }
 }
 
-/// 并行测速全部镜像，返回可达镜像按快 -> 慢排序
+/// 并行测延迟全部镜像，返回可达镜像按快 -> 慢排序
 Future<List<DownloadMirror>> rankMirrors(String githubUrl) async {
   final results = await Future.wait(
     downloadMirrors.map(
