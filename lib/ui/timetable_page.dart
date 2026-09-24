@@ -1181,7 +1181,7 @@ class _TimetablePageState extends State<TimetablePage> {
     final st = _stateOf(c);
     final bg = st == _SpanState.pastEnded ? Colors.black : _colorOf(c.name);
     final alpha = st == _SpanState.active ? .10 : .05;
-    return GestureDetector(
+    return _BounceOnLongPress(
       onLongPress: () => _showCourseDetails(c),
       child: Container(
         margin: const EdgeInsets.all(2),
@@ -1222,7 +1222,7 @@ class _TimetablePageState extends State<TimetablePage> {
         borderAlpha = .18;
         textColor = Colors.black38;
     }
-    return GestureDetector(
+    return _BounceOnLongPress(
       onLongPress: () => _showCourseDetails(c),
       child: Container(
         key: key,
@@ -1459,4 +1459,38 @@ class _TimetablePageState extends State<TimetablePage> {
   String _fmtDate(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
+}
+
+/// 长按反馈：按下缩小，松手弹性回正后再触发回调
+class _BounceOnLongPress extends StatefulWidget {
+  const _BounceOnLongPress({required this.onLongPress, required this.child});
+
+  final VoidCallback onLongPress;
+  final Widget child;
+
+  @override
+  State<_BounceOnLongPress> createState() => _BounceOnLongPressState();
+}
+
+class _BounceOnLongPressState extends State<_BounceOnLongPress> {
+  var _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.deferToChild,
+      onLongPressStart: (_) => setState(() => _pressed = true),
+      onLongPressEnd: (_) {
+        setState(() => _pressed = false);
+        widget.onLongPress();
+      },
+      onLongPressCancel: () => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.93 : 1,
+        duration: Duration(milliseconds: _pressed ? 120 : 350),
+        curve: _pressed ? Curves.easeOut : Curves.easeOutBack,
+        child: widget.child,
+      ),
+    );
+  }
 }
