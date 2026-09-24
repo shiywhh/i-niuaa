@@ -1,7 +1,7 @@
 name: nuaa_eams
 description: "NUAA 教务系统客户端（个人使用）"
 publish_to: 'none'
-version: 2.3.0+5
+version: 2.3.1+6
 
 environment:
   sdk: ^3.11.3
