@@ -35,6 +35,8 @@ const downloadMirrors = <DownloadMirror>[
   DownloadMirror('ghfast', 'ghfast.top', 'https://ghfast.top/'),
   DownloadMirror('ghproxy', 'gh-proxy.com', 'https://gh-proxy.com/'),
   DownloadMirror('moeyy', 'Moeyy 加速', 'https://github.moeyy.xyz/'),
+  DownloadMirror('ghproxynet', 'ghproxy.net', 'https://ghproxy.net/'),
+  DownloadMirror('akams', 'github.akams.cn', 'https://github.akams.cn/'),
 ];
 
 DownloadMirror? mirrorByKey(String key) {

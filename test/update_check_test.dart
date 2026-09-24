@@ -75,6 +75,8 @@ void main() {
         'ghproxy',
         'direct',
         'moeyy',
+        'ghproxynet',
+        'akams',
       ]);
     });
 
@@ -86,6 +88,8 @@ void main() {
         'direct',
         'ghfast',
         'ghproxy',
+        'ghproxynet',
+        'akams',
       ]);
       final order2 = orderMirrorsFor('direct', ranked);
       expect(order2.first.key, 'direct');
