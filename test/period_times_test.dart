@@ -108,47 +108,6 @@ void main() {
     expect(PeriodTime.fromJson({}).index, 1);
   });
 
-  test('envelope 往返 + 裸数组导入（与 Sked 模板互通）', () {
-    final src = campusPreset('将军路');
-    final json = encodePeriodTimesJson(src);
-    expect(json.contains('"schema":"period-times"'), isTrue);
-
-    final back = decodePeriodTimesJson(json);
-    expect(back.length, src.length);
-    for (var i = 0; i < src.length; i++) {
-      expect(back[i].index, src[i].index);
-      expect(back[i].startMinutes, src[i].startMinutes);
-      expect(back[i].endMinutes, src[i].endMinutes);
-    }
-
-    final bare = decodePeriodTimesJson(
-      '[{"index":1,"startMinutes":540,"endMinutes":585}]',
-    );
-    expect(bare.single.startMinutes, 540);
-  });
-
-  test('非法模板报 FormatException', () {
-    expect(() => decodePeriodTimesJson(''), throwsFormatException);
-    expect(() => decodePeriodTimesJson('[]'), throwsFormatException);
-    expect(() => decodePeriodTimesJson('not json'), throwsFormatException);
-    expect(
-      () => decodePeriodTimesJson('{"schema":"other","data":{}}'),
-      throwsFormatException,
-    );
-  });
-
-  test('alignPeriodTimes：截断/补尾/重排 index', () {
-    final src = campusPreset('将军路');
-    final trimmed = alignPeriodTimes(src.sublist(0, 3));
-    expect(trimmed.length, periodCount);
-    expect(trimmed[0].startMinutes, src[0].startMinutes);
-    expect(trimmed[3].startMinutes, src[3].startMinutes); // 尾部用默认校区补
-    expect(
-      [for (final p in trimmed) p.index],
-      [for (var i = 1; i <= periodCount; i++) i],
-    );
-  });
-
   test('hasInvalidPeriodTimes：结束早于开始 / 与上一节重叠', () {
     final ok = campusPreset('天目湖');
     expect(hasInvalidPeriodTimes(ok), isFalse);

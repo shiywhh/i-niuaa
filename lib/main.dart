@@ -3,6 +3,7 @@
 // Run:   flutter run   (Windows 桌面 / Android / iOS)
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/session.dart';
 import 'ui/home_shell.dart';
@@ -25,6 +26,14 @@ class NuaaEamsApp extends StatelessWidget {
     return MaterialApp(
       title: 'i泥航',
       debugShowCheckedModeBanner: false,
+      // 只声明中文：时间选择器、对话框等 Material 文案固定中文，
+      // 不随系统语言回退成英文
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('zh')],
       theme: ThemeData(
         colorScheme: _scheme,
         useMaterial3: true,

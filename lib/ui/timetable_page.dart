@@ -21,6 +21,7 @@ import '../core/current_semester.dart';
 import '../core/models.dart';
 import '../core/period_times.dart';
 import '../core/session.dart';
+import '../core/timetable_ics.dart';
 
 /// 选中的教学周里一门课的状态
 enum _SpanState { active, futureInactive, pastEnded }
@@ -303,6 +304,10 @@ class _TimetablePageState extends State<TimetablePage> {
     }
     // 数据重载后冲突组的成员可能变化，轮换选择作废
     _conflictPick.clear();
+    // 分享/导出入口（HomeShell AppBar）不直接依赖本页 state，喂一份快照
+    TimetableSnapshot.semesterName = _semName ?? '当前学期';
+    TimetableSnapshot.spans = _spans;
+    TimetableSnapshot.firstMonday = _anchor;
   }
 
   /// [keepWeek]：回到本周的跨学期跳转用——保留当前周次选择，

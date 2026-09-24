@@ -4,11 +4,9 @@
 //   - 顶部切换将军路/明故宫/天目湖三校区作息预设（三四节错峰口径已钉死）
 //   - 每行显示时长 / 距上一节间隔；结束 <= 开始、与上一节重叠标红，
 //     有非法行时不落盘（Sked 同策略），改合法后自动写入
-//   - 模板经剪贴板导出/导入，JSON 与 Sked 的 period-times 模板互通
 // Deps: shared_preferences
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../core/period_times.dart';
 
@@ -39,11 +37,6 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
     });
   }
 
-  void _showMessage(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-  }
-
   /// 改一行时刻：非法不落盘（时间栏维持最近一次合法值），合法即写
   Future<void> _pick(int index, {required bool isStart}) async {
     if (_pickerOpen) return;
@@ -68,29 +61,6 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
     setState(() => _times = next);
     if (!hasInvalidPeriodTimes(next)) {
       await PeriodTimesStore.instance.save(next);
-    }
-  }
-
-  Future<void> _copyTemplate() async {
-    await Clipboard.setData(
-      ClipboardData(text: encodePeriodTimesJson(_times)),
-    );
-    _showMessage('模板已复制，可粘贴给 Sked 或本应用导入');
-  }
-
-  Future<void> _pasteTemplate() async {
-    final clip = await Clipboard.getData('text/plain');
-    final text = clip?.text ?? '';
-    if (!mounted) return;
-    try {
-      final imported = alignPeriodTimes(decodePeriodTimesJson(text));
-      setState(() => _times = imported);
-      await PeriodTimesStore.instance.save(imported);
-      _showMessage('已导入 ${imported.length} 节时间');
-    } on FormatException catch (e) {
-      _showMessage('导入失败：${e.message}');
-    } catch (_) {
-      _showMessage('导入失败，请检查内容');
     }
   }
 
@@ -139,16 +109,6 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
       appBar: AppBar(
         title: const Text('节次时间设置'),
         actions: [
-          IconButton(
-            tooltip: '复制模板',
-            icon: const Icon(Icons.copy_outlined),
-            onPressed: _pickerOpen ? null : _copyTemplate,
-          ),
-          IconButton(
-            tooltip: '粘贴导入',
-            icon: const Icon(Icons.paste_outlined),
-            onPressed: _pickerOpen ? null : _pasteTemplate,
-          ),
           IconButton(
             tooltip: '恢复默认',
             icon: const Icon(Icons.restart_alt),

@@ -1,13 +1,15 @@
 name: nuaa_eams
 description: "NUAA 教务系统客户端（个人使用）"
 publish_to: 'none'
-version: 2.1.0+2
+version: 2.2.0+3
 
 environment:
   sdk: ^3.11.3
 
 dependencies:
   flutter:
+    sdk: flutter
+  flutter_localizations:
     sdk: flutter
   cupertino_icons: ^1.0.8
   dio: ^5.7.0
@@ -21,6 +23,9 @@ dependencies:
   crypto: ^3.0.7
   url_launcher: ^6.3.0
   package_info_plus: ^9.0.1
+  file_selector: ^1.1.0
+  share_plus: ^12.0.2
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

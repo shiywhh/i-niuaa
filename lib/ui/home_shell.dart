@@ -1,9 +1,16 @@
 // Engine | Flutter 3.x / Dart 3 | lib/ui/home_shell.dart
-// 底部三栏壳：课表 / 成绩 / 考试，右上角退出登录
+// 底部六栏壳：课表 / 选课 / 成绩 / 考试 / 校园卡 / 关于，右上角分享与退出登录
 
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../core/period_times.dart';
 import '../core/session.dart';
+import '../core/timetable_ics.dart';
 import 'about_page.dart';
 import 'campus_card_page.dart';
 import 'election_page.dart';
@@ -37,6 +44,75 @@ class _HomeShellState extends State<HomeShell> {
   void dispose() {
     _ttCollapsed.dispose();
     super.dispose();
+  }
+
+  // ---------- 课表导出 / 分享 ----------
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// 组 ICS 文本；数据未就绪时提示并返回 null
+  String? _buildIcs() {
+    final spans = TimetableSnapshot.spans;
+    final monday = TimetableSnapshot.firstMonday;
+    if (spans.isEmpty) {
+      _toast('课表还没加载好，稍后再试');
+      return null;
+    }
+    if (monday == null) {
+      _toast('还没有学期锚点：先在课表页刷新出当前教学周');
+      return null;
+    }
+    return buildIcs(
+      semesterName: TimetableSnapshot.semesterName,
+      spans: spans,
+      firstMonday: monday,
+      periodTimes: PeriodTimesStore.instance.times,
+    );
+  }
+
+  String get _icsFileName =>
+      '${sanitizeFileName(TimetableSnapshot.semesterName)}.ics';
+
+  /// 导出为日历文件：系统保存对话框，写到用户选的位置
+  Future<void> _exportIcs() async {
+    final ics = _buildIcs();
+    if (ics == null) return;
+    try {
+      final location = await getSaveLocation(
+        suggestedName: _icsFileName,
+      );
+      if (location == null) return; // 用户取消
+      await File(location.path).writeAsString(ics);
+      _toast('已导出：${location.path}');
+    } on UnsupportedError {
+      _toast('此平台不支持导出，请改用「分享」');
+    } catch (e) {
+      _toast('导出失败：$e');
+    }
+  }
+
+  /// 分享：写临时文件后唤起系统分享（Android 分享面板 / 桌面共享 UI）
+  Future<void> _shareIcs() async {
+    final ics = _buildIcs();
+    if (ics == null) return;
+    try {
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/$_icsFileName');
+      await file.writeAsString(ics);
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'text/calendar')],
+          text: TimetableSnapshot.semesterName,
+        ),
+      );
+    } catch (e) {
+      _toast('分享失败：$e');
+    }
   }
 
   Future<void> _logout() async {
@@ -85,6 +161,21 @@ class _HomeShellState extends State<HomeShell> {
                 context,
                 MaterialPageRoute(builder: (_) => const PeriodTimesPage()),
               ),
+            ),
+          // 课表导出/分享：只在课表 tab 出现，位于节次时间与收起之间
+          if (_tab == 0)
+            PopupMenuButton<String>(
+              tooltip: '导出/分享课表',
+              icon: const Icon(Icons.ios_share),
+              onSelected: (v) =>
+                  v == 'ics' ? _exportIcs() : _shareIcs(),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'ics',
+                  child: Text('导出为日历文件'),
+                ),
+                PopupMenuItem(value: 'share', child: Text('分享')),
+              ],
             ),
           if (_tab == 0)
             ValueListenableBuilder<bool>(

@@ -4,8 +4,6 @@
 //   - 预设取自 aao-eas「作息时间」页（2026-2027 学年第 1 学期）：
 //     将军路/明故宫同口径；三、四节页面标"错峰浮动时间"，
 //     将军路/明故宫取 10:15/11:10，天目湖取 10:30/11:25
-//   - 模板 JSON 用 Sked 的 period-times envelope（schema 'period-times'，
-//     version 3），与 Sked 导出的模板直接互通
 // Deps: shared_preferences
 
 import 'dart:convert';
@@ -145,61 +143,6 @@ bool hasInvalidPeriodTimes(List<PeriodTime> times) {
     if (i > 0 && times[i].startMinutes < times[i - 1].endMinutes) return true;
   }
   return false;
-}
-
-// ---------- 模板 JSON（Sked period-times envelope 兼容） ----------
-
-const _envelopeSchema = 'period-times';
-const _envelopeVersion = 3;
-
-/// 编码成 Sked 可识别的模板 JSON
-String encodePeriodTimesJson(List<PeriodTime> times) => jsonEncode({
-  'schema': _envelopeSchema,
-  'version': _envelopeVersion,
-  'data': {
-    'periodTimes': [for (final t in times) t.toJson()],
-  },
-});
-
-/// 解析模板 JSON：完整 envelope 或裸数组 [{index,startMinutes,endMinutes},...]
-/// 均可；导入后调用方按需截断/补齐到 [periodCount] 节
-List<PeriodTime> decodePeriodTimesJson(String source) {
-  final trimmed = source.trim();
-  if (trimmed.isEmpty) throw const FormatException('内容为空');
-  final Object? decoded;
-  try {
-    decoded = jsonDecode(trimmed);
-  } on FormatException {
-    throw const FormatException('不是合法的 JSON');
-  }
-  final List raw;
-  if (decoded is List) {
-    raw = decoded;
-  } else if (decoded is Map) {
-    final data = decoded['data'];
-    if (decoded['schema'] != _envelopeSchema || data is! Map) {
-      throw const FormatException('不是节次时间模板');
-    }
-    raw = data['periodTimes'] as List? ?? const [];
-  } else {
-    throw const FormatException('不是节次时间模板');
-  }
-  final times = <PeriodTime>[
-    for (final e in raw)
-      if (e is Map) PeriodTime.fromJson(e.cast<String, dynamic>()),
-  ];
-  if (times.isEmpty) throw const FormatException('模板里没有节次时间');
-  return times;
-}
-
-/// 导入模板对齐到固定节数：多了截断，少了用默认校区预设补尾；
-/// index 重排 1..N
-List<PeriodTime> alignPeriodTimes(List<PeriodTime> times) {
-  final defaults = campusPreset(defaultCampus);
-  return List.generate(periodCount, (i) {
-    final src = i < times.length ? times[i] : defaults[i];
-    return src.copyWith(index: i + 1);
-  });
 }
 
 // ---------- 存储：SharedPreferences + 变更通知 ----------
