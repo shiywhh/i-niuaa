@@ -287,6 +287,8 @@ Future<void> downloadAndInstall(
     failure = '下载失败，请检查网络后重试，或改用「前往下载页」';
   }
   closeProgress();
+  // 用户取消：静默返回，不误报失败、更不能拿半截文件去拉安装器
+  if (token.isCancelled) return;
   if (failure != null) {
     if (context.mounted) {
       ScaffoldMessenger.of(

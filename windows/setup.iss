@@ -3,7 +3,7 @@
 ; 输出: installer\nuaa_eams_1.1.0_setup.exe
 
 #define MyAppName "i泥航"
-#define MyAppVersion "2.4.4"
+#define MyAppVersion "2.4.5"
 #define MyAppExeName "nuaa_eams.exe"
 #define ReleaseDir "D:\jiaowu\nuaa_eams\build\windows\x64\runner\Release"
 
