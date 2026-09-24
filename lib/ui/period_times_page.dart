@@ -1,18 +1,13 @@
 // Engine | Flutter 3.x / Dart 3 | lib/ui/period_times_page.dart
-// 课表设置（原节次时间设置，编辑器交互抄自 Sked 的 period_times_page）：
+// 节次时间设置（编辑器交互抄自 Sked 的 period_times_page，按本项目裁剪）：
 //   - 固定 11 节，与课表时间栏一致，只改时刻不增删节
 //   - 顶部切换将军路/明故宫/天目湖三校区作息预设（三四节错峰口径已钉死）
-//   - 上课提醒（仅 Android）：开关 + 提前 10/20/30 分钟档位，
-//     排程覆盖整学期，课表/作息数据变化自动重排
 //   - 每行显示时长 / 距上一节间隔；结束 <= 开始、与上一节重叠标红，
 //     有非法行时不落盘（Sked 同策略），改合法后自动写入
-// Deps: shared_preferences, flutter_local_notifications
-
-import 'dart:io';
+// Deps: shared_preferences
 
 import 'package:flutter/material.dart';
 
-import '../core/course_reminders.dart';
 import '../core/period_times.dart';
 
 class PeriodTimesPage extends StatefulWidget {
@@ -26,9 +21,6 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
   List<PeriodTime> _times = const [];
   var _loading = true;
   var _pickerOpen = false;
-  var _reminderOn = false;
-  var _reminderBusy = false;
-  var _reminderLead = 10;
 
   @override
   void initState() {
@@ -38,12 +30,9 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
 
   Future<void> _init() async {
     await PeriodTimesStore.instance.ensureLoaded();
-    await CourseReminders.instance.load();
     if (!mounted) return;
     setState(() {
       _times = List.of(PeriodTimesStore.instance.times);
-      _reminderOn = CourseReminders.instance.enabled;
-      _reminderLead = CourseReminders.instance.leadMinutes;
       _loading = false;
     });
   }
@@ -108,62 +97,17 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
     await PeriodTimesStore.instance.save(defaults);
   }
 
-  // ---------- 上课提醒 ----------
-
-  void _toast(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _toggleReminder(bool value) async {
-    if (_reminderBusy) return;
-    setState(() => _reminderBusy = true);
-    final err = await CourseReminders.instance.setEnabled(value);
-    if (!mounted) return;
-    setState(() {
-      _reminderBusy = false;
-      if (err == null) _reminderOn = value;
-    });
-    if (err != null) {
-      _toast(err);
-      return;
-    }
-    if (!value) {
-      _toast('已取消全部上课提醒');
-      return;
-    }
-    final n = CourseReminders.instance.pendingCount;
-    _toast(
-      n == 0
-          ? '已开启，等课表加载后自动排程'
-          : '已排 $n 条上课提醒${CourseReminders.instance.exact ? '' : '（精确闹钟未授权，时间可能有几分钟误差）'}',
-    );
-  }
-
-  Future<void> _setLead(int minutes) async {
-    if (_reminderBusy) return;
-    setState(() => _reminderBusy = true);
-    final err = await CourseReminders.instance.setLeadMinutes(minutes);
-    if (!mounted) return;
-    setState(() {
-      _reminderBusy = false;
-      if (err == null) _reminderLead = minutes;
-    });
-    _toast(err ?? '已按提前 $minutes 分钟重排 ${CourseReminders.instance.pendingCount} 条提醒');
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('课表设置')),
+        appBar: AppBar(title: const Text('节次时间设置')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
-    final showReminder = Platform.isAndroid;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('课表设置'),
+        title: const Text('节次时间设置'),
         actions: [
           IconButton(
             tooltip: '恢复默认',
@@ -184,64 +128,12 @@ class _PeriodTimesPageState extends State<PeriodTimesPage> {
             selected: {PeriodTimesStore.instance.campus},
             onSelectionChanged: (sel) => _selectCampus(sel.first),
           ),
-          // 上课提醒（仅 Android；Windows 无本地通知实现）
-          if (showReminder) ...[
-            const SizedBox(height: 12),
-            Card(
-              margin: EdgeInsets.zero,
-              elevation: 0,
-              clipBehavior: Clip.antiAlias,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: const BorderSide(color: Colors.black12),
-              ),
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    title: const Text(
-                      '上课提醒',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text(
-                      _reminderOn
-                          ? '开课前 $_reminderLead 分钟通知（含教室/老师/周次）'
-                          : '整学期课程开课前提醒你',
-                    ),
-                    value: _reminderOn,
-                    onChanged: _reminderBusy ? null : _toggleReminder,
-                  ),
-                  if (_reminderOn)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      child: SegmentedButton<int>(
-                        segments: const [
-                          ButtonSegment(value: 10, label: Text('提前10分')),
-                          ButtonSegment(value: 20, label: Text('提前20分')),
-                          ButtonSegment(value: 30, label: Text('提前30分')),
-                        ],
-                        selected: {_reminderLead},
-                        onSelectionChanged: (sel) => _setLead(sel.first),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
           const SizedBox(height: 12),
-          _sectionTitle('节次时间'),
           ...[for (var i = 0; i < _times.length; i++) _periodRow(i)],
         ],
       ),
     );
   }
-
-  Widget _sectionTitle(String t) => Padding(
-    padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
-    child: Text(
-      t,
-      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-    ),
-  );
 
   Widget _periodRow(int i) {
     final period = _times[i];

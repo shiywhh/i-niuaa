@@ -17,7 +17,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/course_reminders.dart';
 import '../core/current_semester.dart';
 import '../core/models.dart';
 import '../core/period_times.dart';
@@ -120,8 +119,6 @@ class _TimetablePageState extends State<TimetablePage> {
 
   void _onPeriodTimesChanged() {
     if (mounted) setState(() {});
-    // 节次时间变了：提醒时刻跟着变（指纹含时间表，变了才重排）
-    CourseReminders.instance.refreshIfDataChanged();
   }
 
   @override
@@ -311,8 +308,6 @@ class _TimetablePageState extends State<TimetablePage> {
     TimetableSnapshot.semesterName = _semName ?? '当前学期';
     TimetableSnapshot.spans = _spans;
     TimetableSnapshot.firstMonday = _anchor;
-    // 提醒开关开着的话：数据变了就重排（内部指纹比对，没变不折腾）
-    CourseReminders.instance.refreshIfDataChanged();
   }
 
   /// [keepWeek]：回到本周的跨学期跳转用——保留当前周次选择，
