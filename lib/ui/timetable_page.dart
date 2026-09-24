@@ -11,6 +11,7 @@
 //     之后日期表头与真实周次全靠锚点本地推算（离线、历史学期都可用）
 //   - 缓存 stale-while-revalidate：按学期分 key，进页面先渲染缓存再静默刷新
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -21,7 +22,8 @@ import '../core/current_semester.dart';
 import '../core/models.dart';
 import '../core/period_times.dart';
 import '../core/session.dart';
-import '../core/timetable_ics.dart';
+import '../core/timetable_ics.dart' show TimetableSnapshot, unitToPeriod;
+import '../core/timetable_settings.dart';
 
 /// 选中的教学周里一门课的状态
 enum _SpanState { active, futureInactive, pastEnded }
@@ -67,6 +69,7 @@ class _TimetablePageState extends State<TimetablePage> {
   DateTime? _cacheAt; // 缓存数据的时刻
   DateTime? _anchor; // 所选学期第 1 周的周一（本地推算基准）
   int _loadSeq = 0; // 加载代际号：加载中又触发新加载时，旧响应/旧错误整体作废
+  Timer? _tick; // 每分钟一跳：今日高亮 / 进行中节次 / 下节课提示
 
   static const _cachePrefix = 'tt_cache_v3_';
   static const _anchorPrefix = 'tt_anchor_';
@@ -114,6 +117,12 @@ class _TimetablePageState extends State<TimetablePage> {
     // 节次时间：首次加载 + 设置页保存后刷新时间栏
     PeriodTimesStore.instance.revision.addListener(_onPeriodTimesChanged);
     PeriodTimesStore.instance.ensureLoaded();
+    // 显示设置：设置页改动即时重绘；每分钟一跳刷新"进行中/下节课"
+    TimetableSettings.instance.revision.addListener(_onPeriodTimesChanged);
+    TimetableSettings.instance.load();
+    _tick = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
     _load();
   }
 
@@ -134,6 +143,8 @@ class _TimetablePageState extends State<TimetablePage> {
   @override
   void dispose() {
     PeriodTimesStore.instance.revision.removeListener(_onPeriodTimesChanged);
+    TimetableSettings.instance.revision.removeListener(_onPeriodTimesChanged);
+    _tick?.cancel();
     widget.collapsed?.removeListener(_onCollapsedChanged);
     _headHCtrl
       ..removeListener(_syncHeadToBody)
@@ -612,8 +623,49 @@ class _TimetablePageState extends State<TimetablePage> {
       );
     }
 
-    const days = 7;
+    final s = TimetableSettings.instance;
+    final days = s.visibleDays;
     const dayNames = ['一', '二', '三', '四', '五', '六', '日'];
+    final today = DateTime.now();
+    final todayWd = today.weekday;
+    final todayIdx = days.indexOf(todayWd);
+    // "进行中/下节课"只在看到真实本周（或全部视图）时生效
+    final realW = _realWeek;
+    final isCurrentWeekView =
+        (_week == 0 && realW != null) || (_week >= 1 && _week == realW);
+
+    // 今天各节次的进行中/下节课探测（有课的节才标记）
+    var inProgressUnit = -1;
+    var nextUnit = -1;
+    if (isCurrentWeekView && todayIdx >= 0) {
+      final nowMinutes = today.hour * 60 + today.minute;
+      final covered = <int>{};
+      for (final c in _spans.where((c) => c.weekday == todayWd)) {
+        if (_week >= 1 && _stateOf(c) != _SpanState.active) continue;
+        // 全部周视图：按真实教学周过滤，别把别的周的课算成"今天要上"
+        if (_week <= 0 &&
+            realW != null &&
+            c.weekSet.isNotEmpty &&
+            !c.weekSet.contains(realW)) {
+          continue;
+        }
+        for (var u = c.startUnit; u <= c.endUnit; u++) {
+          covered.add(u);
+        }
+      }
+      for (final u in _displayUnits) {
+        final t = PeriodTimesStore.instance.of(u <= 3 ? u + 1 : u - 1);
+        if (t == null) continue;
+        if (nowMinutes >= t.startMinutes && nowMinutes < t.endMinutes) {
+          if (covered.contains(u)) inProgressUnit = u;
+        } else if (inProgressUnit == -1 &&
+            nextUnit == -1 &&
+            nowMinutes < t.startMinutes &&
+            covered.contains(u)) {
+          nextUnit = u;
+        }
+      }
+    }
 
     return Column(
       children: [
@@ -756,18 +808,61 @@ class _TimetablePageState extends State<TimetablePage> {
             ),
           ),
         const SizedBox(height: 8),
+        // 下节课提示条（仅当前周视图、今天还有没上的课）
+        if (nextUnit != -1)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Builder(
+                builder: (_) {
+                  final u = nextUnit;
+                  final n = u <= 3 ? u + 1 : u - 1;
+                  final t = PeriodTimesStore.instance.of(n)!;
+                  CourseSpan? course;
+                  for (final c in _spans.where((c) => c.weekday == todayWd)) {
+                    if (_week >= 1 && _stateOf(c) != _SpanState.active) {
+                      continue;
+                    }
+                    if (c.startUnit <= u && c.endUnit >= u) {
+                      course = c;
+                      break;
+                    }
+                  }
+                  final left =
+                      t.startMinutes - (today.hour * 60 + today.minute);
+                  return Text(
+                    '下节课：${course?.name ?? ''} · 第$n节 '
+                    '${formatMinutes(t.startMinutes)}（还有 $left 分钟）',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF1A56B0),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
         // 表格：表头纵向固定 + 横向同步；单一纵向 viewport，时间栏内嵌其中
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              const labelW = 46.0, minColW = 90.0, headH = 36.0, rowH = 80.0;
+              const labelW = 46.0, minColW = 90.0, headH = 36.0;
+              final rowH = s.rowHeight;
+              final dayCount = days.length;
               final availW = constraints.maxWidth - labelW;
-              final colW = availW / days >= minColW ? availW / days : minColW;
-              final tableW = colW * days;
+              // 塞满屏幕：列宽 = 可用宽/列数（可能很窄，不滚动）；
+              // 否则保最小列宽、横向滚动
+              final colW = s.fitWidth
+                  ? availW / dayCount
+                  : (availW / dayCount >= minColW
+                        ? availW / dayCount
+                        : minColW);
+              final tableW = colW * dayCount;
               final gridH = rowH * _displayUnits.length;
 
               // 星期表头下的日期：优先锚点推算，无锚点退回相对当前周偏移
-              final dayDates = List<String?>.filled(days, null);
+              final dayDates = List<String?>.filled(dayCount, null);
               if (_week >= 1) {
                 DateTime? monday;
                 if (_anchor != null) {
@@ -779,9 +874,9 @@ class _TimetablePageState extends State<TimetablePage> {
                       .add(Duration(days: (_week - _curWeek!) * 7));
                 }
                 if (monday != null) {
-                  for (var d = 1; d <= days; d++) {
-                    final date = monday.add(Duration(days: d - 1));
-                    dayDates[d - 1] = '${date.month}/${date.day}';
+                  for (var i = 0; i < dayCount; i++) {
+                    final date = monday.add(Duration(days: days[i] - 1));
+                    dayDates[i] = '${date.month}/${date.day}';
                   }
                 }
               }
@@ -805,30 +900,41 @@ class _TimetablePageState extends State<TimetablePage> {
                               height: headH,
                               child: Row(
                                 children: [
-                                  for (var d = 1; d <= days; d++)
+                                  for (var i = 0; i < dayCount; i++)
                                     SizedBox(
                                       width: colW,
                                       height: headH,
-                                      child: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            '周${dayNames[d - 1]}',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                          if (dayDates[d - 1] != null)
+                                      child: Container(
+                                        // 今日列高亮
+                                        color: i == todayIdx
+                                            ? const Color(0x141A56B0)
+                                            : null,
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
                                             Text(
-                                              dayDates[d - 1]!,
-                                              style: const TextStyle(
-                                                fontSize: 9,
-                                                color: Colors.black45,
+                                              '周${dayNames[days[i] - 1]}',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 12,
+                                                color: i == todayIdx
+                                                    ? const Color(0xFF1A56B0)
+                                                    : null,
                                               ),
                                             ),
-                                        ],
+                                            if (dayDates[i] != null)
+                                              Text(
+                                                dayDates[i]!,
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  color: i == todayIdx
+                                                      ? const Color(0xCC1A56B0)
+                                                      : Colors.black45,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                 ],
@@ -855,8 +961,16 @@ class _TimetablePageState extends State<TimetablePage> {
                                   for (final u in _displayUnits)
                                     _railCell(
                                       '第${u <= 3 ? u + 1 : u - 1}节',
-                                      time: PeriodTimesStore.instance
-                                          .of(u <= 3 ? u + 1 : u - 1),
+                                      height: rowH,
+                                      time: s.showRailTimes
+                                          ? PeriodTimesStore.instance.of(
+                                              u <= 3 ? u + 1 : u - 1,
+                                            )
+                                          : null,
+                                      highlight:
+                                          isCurrentWeekView &&
+                                          todayIdx >= 0 &&
+                                          inProgressUnit == u,
                                     ),
                                 ],
                               ),
@@ -872,8 +986,16 @@ class _TimetablePageState extends State<TimetablePage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      for (var d = 1; d <= days; d++)
-                                        _dayColumn(d, colW, rowH),
+                                      for (var i = 0; i < dayCount; i++)
+                                        _dayColumn(
+                                          days[i],
+                                          colW,
+                                          rowH,
+                                          isToday: i == todayIdx,
+                                          inProgressUnit: isCurrentWeekView
+                                              ? inProgressUnit
+                                              : -1,
+                                        ),
                                     ],
                                   ),
                                 ),
@@ -900,9 +1022,22 @@ class _TimetablePageState extends State<TimetablePage> {
     return end > top;
   }
 
-  /// 一天的列：节次横线 + 该天所有课卡（Stack 绝对定位）
-  Widget _dayColumn(int d, double colW, double rowH) {
-    final daySpans = _spans.where((c) => c.weekday == d).toList();
+  /// 一天的列：节次横线 + 该天所有课卡（Stack 绝对定位）。
+  /// isToday 列微染底色，进行中的节次行加边框强调
+  Widget _dayColumn(
+    int d,
+    double colW,
+    double rowH, {
+    required bool isToday,
+    required int inProgressUnit,
+  }) {
+    var daySpans = _spans.where((c) => c.weekday == d).toList();
+    // 关掉"显示非本周课程"时，选中具体周的视图里只留本周在上的课
+    if (!TimetableSettings.instance.showNonCurrentWeek && _week >= 1) {
+      daySpans = daySpans
+          .where((c) => _stateOf(c) == _SpanState.active)
+          .toList();
+    }
     final groups = _overlapGroups(daySpans);
     return SizedBox(
       width: colW,
@@ -916,10 +1051,20 @@ class _TimetablePageState extends State<TimetablePage> {
               left: 0,
               right: 0,
               height: rowH,
-              child: const DecoratedBox(
+              child: DecoratedBox(
                 decoration: BoxDecoration(
+                  color: isToday
+                      ? (inProgressUnit == _displayUnits[i]
+                            ? const Color(0x0F1A56B0)
+                            : const Color(0x051A56B0))
+                      : null,
                   border: Border(
-                    top: BorderSide(color: Colors.black12, width: .5),
+                    top: BorderSide(
+                      color: isToday && inProgressUnit == _displayUnits[i]
+                          ? const Color(0x661A56B0)
+                          : Colors.black12,
+                      width: .5,
+                    ),
                   ),
                 ),
               ),
@@ -1039,25 +1184,31 @@ class _TimetablePageState extends State<TimetablePage> {
   }
 
   /// 组内未选中成员的底块：无文字，按课程色露出形状；
-  /// 三态同样生效（未开始/已结课更淡，已结课转灰）
+  /// 三态同样生效（未开始/已结课更淡，已结课转灰）；长按同样弹详情
   Widget _ghostCard(CourseSpan c) {
     final st = _stateOf(c);
     final bg = st == _SpanState.pastEnded ? Colors.black : _colorOf(c.name);
     final alpha = st == _SpanState.active ? .10 : .05;
-    return Container(
-      margin: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: bg.withValues(alpha: alpha),
-        borderRadius: BorderRadius.circular(6),
+    return GestureDetector(
+      onLongPress: () => _showCourseDetails(c),
+      child: Container(
+        margin: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          color: bg.withValues(alpha: alpha),
+          borderRadius: BorderRadius.circular(6),
+        ),
       ),
     );
   }
 
   /// 课卡：按三态上色；高卡（跨多行）多给课名行数；
-  /// 未开始/已结课在卡片底部中央加标注
+  /// 未开始/已结课在卡片底部中央加标注。
+  /// 显示内容（教室/老师/周次角标）与水平/垂直居中走显示设置；
+  /// 长按弹详情
   Widget _spanCard(CourseSpan c, {required bool tall, Key? key}) {
     final st = _stateOf(c);
     final hue = _colorOf(c.name);
+    final settings = TimetableSettings.instance;
     final Color bg;
     final double bgAlpha;
     final double borderAlpha;
@@ -1079,85 +1230,186 @@ class _TimetablePageState extends State<TimetablePage> {
         borderAlpha = .18;
         textColor = Colors.black38;
     }
-    return Container(
-      key: key,
-      margin: const EdgeInsets.all(2),
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: bg.withValues(alpha: bgAlpha),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: bg.withValues(alpha: borderAlpha)),
-      ),
-      child: Stack(
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Flexible(
-                child: Text(
-                  c.name,
-                  softWrap: true,
-                  maxLines: tall ? 6 : 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
-                  ),
-                ),
-              ),
-              if (c.room.isNotEmpty)
-                Text(
-                  c.room,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    color: textColor.withValues(alpha: .85),
-                  ),
-                ),
-              if (_week == 0 && c.weeks.isNotEmpty)
-                Text(
-                  '${c.weeks}周',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 9,
-                    color: textColor.withValues(alpha: .7),
-                  ),
-                ),
-            ],
+    return GestureDetector(
+      onLongPress: () => _showCourseDetails(c),
+      child: Container(
+        key: key,
+        margin: const EdgeInsets.all(2),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: bg.withValues(alpha: bgAlpha),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: bg.withValues(alpha: borderAlpha)),
+        ),
+        child: Stack(
+          alignment: Alignment(
+            settings.cardCenterH ? 0 : -1,
+            settings.cardCenterV ? 0 : -1,
           ),
-          // 底部中央的状态标注（仅未开始/已结课）
-          if (st != _SpanState.active)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: bg.withValues(alpha: math.min(.14, bgAlpha + .07)),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: settings.cardCenterH
+                  ? CrossAxisAlignment.center
+                  : CrossAxisAlignment.start,
+              children: [
+                Flexible(
                   child: Text(
-                    st == _SpanState.futureInactive ? '未开始' : '已结课',
-                    maxLines: 1,
+                    c.name,
+                    softWrap: true,
+                    maxLines: tall ? 6 : 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: settings.cardCenterH
+                        ? TextAlign.center
+                        : TextAlign.start,
                     style: TextStyle(
-                      fontSize: 8,
-                      height: 1.2,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.bold,
                       color: textColor,
                     ),
                   ),
                 ),
-              ),
+                if (settings.cardShowRoom && c.room.isNotEmpty)
+                  Text(
+                    c.room,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      color: textColor.withValues(alpha: .85),
+                    ),
+                  ),
+                if (settings.cardShowTeacher && c.teacher.isNotEmpty)
+                  Text(
+                    c.teacher,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: textColor.withValues(alpha: .75),
+                    ),
+                  ),
+                if (settings.cardShowWeeksTag &&
+                    _week == 0 &&
+                    c.weeks.isNotEmpty)
+                  Text(
+                    '${c.weeks}周',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: textColor.withValues(alpha: .7),
+                    ),
+                  ),
+              ],
             ),
+            // 底部中央的状态标注（仅未开始/已结课）
+            if (st != _SpanState.active)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: bg.withValues(alpha: math.min(.14, bgAlpha + .07)),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      st == _SpanState.futureInactive ? '未开始' : '已结课',
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: 8,
+                        height: 1.2,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 长按课卡详情：全部静态信息一屏看全
+  void _showCourseDetails(CourseSpan c) {
+    final times = PeriodTimesStore.instance;
+    final p1 = unitToPeriod(c.startUnit);
+    final p2 = unitToPeriod(c.endUnit);
+    final t1 = (p1 == null || p1 > times.times.length) ? null : times.of(p1);
+    final t2 = (p2 == null || p2 > times.times.length) ? null : times.of(p2);
+    final st = _stateOf(c);
+    Widget row(String label, String value) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 56,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.black45),
+            ),
+          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 13.5))),
         ],
+      ),
+    );
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                c.name,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (c.teacher.isNotEmpty) row('老师', c.teacher),
+              if (c.room.isNotEmpty) row('教室', c.room),
+              row('星期', '周${'一二三四五六日'[c.weekday - 1]}'),
+              if (p1 != null)
+                row('节次', p2 == null || p2 == p1 ? '第$p1节' : '第$p1 - $p2节'),
+              if (t1 != null && t2 != null)
+                row(
+                  '时间',
+                  '${formatMinutes(t1.startMinutes)} - '
+                      '${formatMinutes(t2.endMinutes)}',
+                ),
+              if (c.weeks.isNotEmpty)
+                row('周次', c.weekSet.isEmpty ? c.weeks : '第 ${c.weeks} 周'),
+              if (_week >= 1)
+                row('本周', switch (st) {
+                  _SpanState.active => '在上',
+                  _SpanState.futureInactive => '未开始',
+                  _SpanState.pastEnded => '已结课',
+                }),
+              if (_week >= 1 && _anchor != null)
+                row(
+                  '日期',
+                  _fmtDate(
+                    _anchor!.add(
+                      Duration(days: (_week - 1) * 7 + c.weekday - 1),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1179,23 +1431,28 @@ class _TimetablePageState extends State<TimetablePage> {
     ),
   );
 
-  /// 时间栏格：节号 + 上下课时刻（设置过才有）；行高 80 固定
-  Widget _railCell(String t, {PeriodTime? time}) => Container(
-    height: 80,
+  /// 时间栏格：节号 + 上下课时刻（开关控制）；行高跟随设置
+  Widget _railCell(
+    String t, {
+    required double height,
+    PeriodTime? time,
+    bool highlight = false,
+  }) => Container(
+    height: height,
     alignment: Alignment.center,
-    decoration: const BoxDecoration(
+    decoration: BoxDecoration(
+      color: highlight ? const Color(0x0F1A56B0) : null,
       border: Border(
-        right: BorderSide(color: Colors.black12),
-        bottom: BorderSide(color: Colors.black12),
+        right: const BorderSide(color: Colors.black12),
+        bottom: BorderSide(
+          color: highlight ? const Color(0x661A56B0) : Colors.black12,
+        ),
       ),
     ),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(
-          t,
-          style: const TextStyle(fontSize: 11, color: Colors.black54),
-        ),
+        Text(t, style: const TextStyle(fontSize: 11, color: Colors.black54)),
         if (time != null) ...[
           const SizedBox(height: 2),
           Text(
@@ -1214,4 +1471,8 @@ class _TimetablePageState extends State<TimetablePage> {
       ],
     ),
   );
+
+  String _fmtDate(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 }

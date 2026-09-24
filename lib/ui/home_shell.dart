@@ -187,10 +187,10 @@ class _HomeShellState extends State<HomeShell> {
         title: const Text('i泥航'),
         actions: [
           // 展开/收起课表页顶部两行：只在课表 tab 出现，位于退出登录左侧
-          // 节次时间设置：只在课表 tab 出现，位于收起按钮左侧
+          // 课表设置：只在课表 tab 出现，位于收起按钮左侧
           if (_tab == 0)
             IconButton(
-              tooltip: '节次时间设置',
+              tooltip: '课表设置',
               icon: const Icon(Icons.schedule_outlined),
               onPressed: () => Navigator.push(
                 context,
