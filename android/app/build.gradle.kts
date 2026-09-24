@@ -20,13 +20,16 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.eleven.nuaa"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
+        // versionCode 从 versionName 派生：major*10000 + minor*100 + patch。
+        // v2.0.0 官方包 versionCode=2001（当时手工 +N 的遗留口径），Android
+        // 只比较整数，后续任何构建都必须高过它；派生后 2.0.0→20000、
+        // 2.2.0→20200，永远不会再撞上"已安装更高版本"
+        val vParts = flutter.versionName.split(".")
+        versionCode = vParts[0].toInt() * 10000 + vParts[1].toInt() * 100 +
+            (vParts.getOrNull(2)?.toIntOrNull() ?: 0)
         versionName = flutter.versionName
     }
 
