@@ -1480,8 +1480,17 @@ class _BounceOnLongPressState extends State<_BounceOnLongPress> {
     return GestureDetector(
       behavior: HitTestBehavior.deferToChild,
       onLongPressStart: (_) => setState(() => _pressed = true),
-      // 长按时长一到立即弹详情，不等松手；松手只负责回弹
-      onLongPress: widget.onLongPress,
+      // 长按识别 -> 缩小播完 -> 回弹起跳 -> 再弹详情，
+      // 让动效在弹窗盖上来之前看得见；全程不需要等松手
+      onLongPress: () {
+        Future.delayed(const Duration(milliseconds: 160), () {
+          if (!mounted) return;
+          setState(() => _pressed = false);
+          Future.delayed(const Duration(milliseconds: 240), () {
+            if (mounted) widget.onLongPress();
+          });
+        });
+      },
       onLongPressEnd: (_) => setState(() => _pressed = false),
       onLongPressCancel: () => setState(() => _pressed = false),
       child: AnimatedScale(
