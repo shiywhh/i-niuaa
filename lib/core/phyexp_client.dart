@@ -89,6 +89,7 @@ class PhyExpLesson {
   final int maxStudent;
   final int currentStudent;
   final bool bookedByMe;
+  final int? user2projectId; // 已选时非空，退课接口用
 
   const PhyExpLesson({
     required this.scheduleId,
@@ -101,6 +102,7 @@ class PhyExpLesson {
     required this.maxStudent,
     required this.currentStudent,
     required this.bookedByMe,
+    this.user2projectId,
   });
 
   int get remaining =>
@@ -390,6 +392,10 @@ class PhyExpClient {
             maxStudent: (j['max_student_number'] as num?)?.toInt() ?? 0,
             currentStudent: (j['current_student_number'] as num?)?.toInt() ?? 0,
             bookedByMe: ((j['user2projects'] as List?) ?? const []).isNotEmpty,
+            user2projectId: ((j['user2projects'] as List?) ?? const [])
+                .whereType<Map>()
+                .map((x) => (x['id'] as num?)?.toInt())
+                .firstWhere((x) => x != null, orElse: () => null),
           ),
         );
       }
@@ -419,6 +425,21 @@ class PhyExpClient {
       if (msg.contains('失败') || msg.contains('已满') || msg.contains('错误')) {
         throw Exception(msg);
       }
+    }
+  }
+
+  /// 退课（实测口径：POST report-api/electives/`<user2project_id>`/cancel，
+  /// 无请求体；响应 `{"status":false,"code":200,"message":"ok"}` 但退课成功）
+  Future<void> cancel(int user2projectId) async {
+    final res = await dio.post(
+      '/report-api/electives/$user2projectId/cancel',
+      options: Options(
+        headers: {'Authorization': 'Bearer ${user!.token}'},
+        validateStatus: (s) => s != null && s < 500,
+      ),
+    );
+    if (res.statusCode != 200) {
+      throw Exception('退课失败（HTTP ${res.statusCode}）');
     }
   }
 

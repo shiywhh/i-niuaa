@@ -6,6 +6,8 @@
 //     弹确认框后提交，成功刷新列表
 // Deps: dio, crypto, flutter_secure_storage
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/phyexp_client.dart';
@@ -366,11 +368,36 @@ class _PhyExpLessonsPageState extends State<PhyExpLessonsPage> {
   var _loading = true;
   String? _error;
   var _bookingScheduleId = -1;
+  var _cancellingId = -1;
+  Timer? _poll; // 余量自动轮询：30s 静默刷新
 
   @override
   void initState() {
     super.initState();
     _load();
+    _poll = Timer.periodic(const Duration(seconds: 30), (_) => _silentLoad());
+  }
+
+  /// 静默刷新：不闪加载态，只更新数据
+  Future<void> _silentLoad() async {
+    if (_bookingScheduleId != -1 || _cancellingId != -1) return;
+    try {
+      final lessons = await _client.lessons(
+        projectId: widget.experiment.projectId,
+        courseId: widget.course.courseId,
+        userId: _client.user!.userId,
+        classId: widget.course.classId,
+        semester: widget.semester,
+      );
+      if (!mounted) return;
+      setState(() => _lessons = lessons);
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -439,6 +466,48 @@ class _PhyExpLessonsPageState extends State<PhyExpLessonsPage> {
       ).showSnackBar(SnackBar(content: Text('选课失败：$e')));
     } finally {
       if (mounted) setState(() => _bookingScheduleId = -1);
+    }
+  }
+
+  Future<void> _cancel(PhyExpLesson lesson) async {
+    final id = lesson.user2projectId;
+    if (id == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认退课'),
+        content: Text(
+          '${widget.experiment.name}\n'
+          '${lesson.date} ${lesson.startTime}-${lesson.endTime}\n\n确定退掉这场？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _cancellingId = id);
+    try {
+      await _client.cancel(id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已退课')));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('退课失败：$e')));
+    } finally {
+      if (mounted) setState(() => _cancellingId = -1);
     }
   }
 
@@ -519,18 +588,22 @@ class _PhyExpLessonsPageState extends State<PhyExpLessonsPage> {
                             ),
                             const SizedBox(width: 8),
                             lesson.bookedByMe
-                                ? const Text(
-                                    '已选',
-                                    style: TextStyle(
-                                      color: Color(0xFF2E7D32),
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
+                                ? OutlinedButton(
+                                    onPressed: _cancellingId != -1
+                                        ? null
+                                        : () => _cancel(lesson),
+                                    child: Text(
+                                      _cancellingId == lesson.user2projectId
+                                          ? '退课中…'
+                                          : '取消',
+                                      style: const TextStyle(fontSize: 12.5),
                                     ),
                                   )
                                 : FilledButton(
                                     onPressed:
                                         lesson.remaining <= 0 ||
-                                            _bookingScheduleId != -1
+                                            _bookingScheduleId != -1 ||
+                                            _cancellingId != -1
                                         ? null
                                         : () => _book(lesson),
                                     child: Text(
