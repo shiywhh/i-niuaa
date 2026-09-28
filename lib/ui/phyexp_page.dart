@@ -111,19 +111,6 @@ class _PhyExpLoginFormState extends State<_PhyExpLoginForm> {
       padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
       children: [
         const Icon(Icons.science_outlined, size: 56, color: Colors.black45),
-        const SizedBox(height: 12),
-        const Center(
-          child: Text(
-            '物理实验预约系统',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-        ),
-        Center(
-          child: Text(
-            '$_campus校区 · phyexp.nuaa.edu.cn',
-            style: const TextStyle(fontSize: 12, color: Colors.black45),
-          ),
-        ),
         const SizedBox(height: 24),
         SegmentedButton<String>(
           segments: [
@@ -174,13 +161,6 @@ class _PhyExpLoginFormState extends State<_PhyExpLoginForm> {
         FilledButton(
           onPressed: _busy ? null : _login,
           child: Text(_busy ? '登录中…' : '登录'),
-        ),
-        const SizedBox(height: 12),
-        const Center(
-          child: Text(
-            '账号密码与统一身份认证不互通，仅存本机加密存储',
-            style: TextStyle(fontSize: 11, color: Colors.black38),
-          ),
         ),
       ],
     );
