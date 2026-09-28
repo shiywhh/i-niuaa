@@ -137,10 +137,13 @@ class _PhyExpLoginFormState extends State<_PhyExpLoginForm> {
           ),
           onSubmitted: (_) => _login(),
         ),
-        SwitchListTile(
+        CheckboxListTile(
           title: const Text('记住密码', style: TextStyle(fontSize: 13.5)),
           value: _remember,
-          onChanged: (v) => setState(() => _remember = v),
+          controlAffinity: ListTileControlAffinity.leading,
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          onChanged: (v) => setState(() => _remember = v ?? true),
         ),
         if (_error != null)
           Padding(
@@ -186,6 +189,7 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
   PhyExpCourse? _course;
   PhyExpSemester? _semester;
   List<PhyExpExperiment> _experiments = [];
+  List<PhyExpMyExperiment> _mine = [];
 
   @override
   void initState() {
@@ -212,11 +216,17 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
         course.courseId,
       );
       final exps = await _client.experiments(course.courseId, elected);
+      final mine = await _client.myExperiments(
+        sem.id,
+        user.userId,
+        course.courseId,
+      );
       if (!mounted) return;
       setState(() {
         _semester = sem;
         _course = course;
         _experiments = exps;
+        _mine = mine;
         _loading = false;
       });
     } catch (e) {
@@ -284,6 +294,70 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
                           style: const TextStyle(
                             fontSize: 12.5,
                             color: Colors.black54,
+                          ),
+                        ),
+                      ),
+                      if (_mine.isNotEmpty) ...[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
+                          child: Text(
+                            '我的实验（${_mine.length}）',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        for (final m in _mine)
+                          Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            color: const Color(0x142E7D32),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              side: const BorderSide(color: Color(0x552E7D32)),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    m.name,
+                                    style: const TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF2E7D32),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    [
+                                      '${m.date} ${m.startTime}-${m.endTime}',
+                                      if (m.location.isNotEmpty) m.location,
+                                      if (m.teacher.isNotEmpty) m.teacher,
+                                    ].join(' · '),
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 12),
+                      ],
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
+                        child: Text(
+                          '全部实验',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),

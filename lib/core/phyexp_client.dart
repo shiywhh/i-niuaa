@@ -111,6 +111,41 @@ class PhyExpLesson {
   DateTime get start => DateTime.parse('${date}T$startTime');
 }
 
+/// 已选的实验（我的实验列表条目）
+class PhyExpMyExperiment {
+  final int user2projectId;
+  final String name;
+  final String date;
+  final String periodName;
+  final String startTime;
+  final String endTime;
+  final String location;
+  final String teacher;
+  final String status; // elected / scheduled / free_schedule
+
+  const PhyExpMyExperiment({
+    required this.user2projectId,
+    required this.name,
+    required this.date,
+    required this.periodName,
+    required this.startTime,
+    required this.endTime,
+    required this.location,
+    required this.teacher,
+    required this.status,
+  });
+
+  DateTime get start =>
+      DateTime.tryParse('${date}T$startTime') ?? DateTime(1970);
+
+  String get statusText => switch (status) {
+    'elected' => '已选',
+    'scheduled' => '已排课',
+    'free_schedule' => '自由排课',
+    _ => status,
+  };
+}
+
 class PhyExpClient {
   PhyExpClient._();
   static final instance = PhyExpClient._();
@@ -378,13 +413,19 @@ class PhyExpClient {
         ],
       },
     );
+    final since = DateTime(
+      semester.since.year,
+      semester.since.month,
+      semester.since.day,
+    );
+    final until = semester.to.add(const Duration(days: 1));
     final out = <PhyExpLesson>[];
     if (list is List) {
       for (final j in list.whereType<Map>()) {
-        // 同一个 or 参数 dio 会拼两遍 key，这里手工校验 date 范围兜底
+        // 日期范围兜底：必须用真日期解析，字符串比较会因位数错序
         final date = (j['date'] ?? '').toString();
-        if (date.compareTo(_shortDate(semester.since)) < 0) continue;
-        if (date.compareTo(_shortDate(semester.to)) > 0) continue;
+        final d = DateTime.tryParse(date);
+        if (d == null || d.isBefore(since) || d.isAfter(until)) continue;
         final period = (j['periods'] as Map?) ?? const {};
         final loc = (j['locations'] as Map?) ?? const {};
         final teacher = (j['teacher'] as Map?) ?? const {};
@@ -407,6 +448,51 @@ class PhyExpClient {
           ),
         );
       }
+    }
+    out.sort((a, b) => a.start.compareTo(b.start));
+    return out;
+  }
+
+  /// 我的实验：已选记录（含场次日期/节次/地点/老师/状态）
+  Future<List<PhyExpMyExperiment>> myExperiments(
+    int semesterId,
+    int userId,
+    int courseId,
+  ) async {
+    final list = await _get(
+      '/rest/user2projects',
+      query: {
+        'select':
+            'id,project_id,schedule_id,schedule_status,'
+            'schedules!user2project_schedule_id_fkey(date,periods(name,start_time,end_time),locations(name),teacher:users!schedule_teacher_id_fkey(name)),'
+            'projects!user2project_project_id_fkey(name)',
+        'semester_id': 'eq.$semesterId',
+        'user_id': 'eq.$userId',
+        'course_id': 'eq.$courseId',
+        'schedule_status': 'in.(elected,scheduled,free_schedule)',
+      },
+    );
+    final out = <PhyExpMyExperiment>[];
+    if (list is! List) return out;
+    for (final j in list.whereType<Map>()) {
+      final project = (j['projects'] as Map?) ?? const {};
+      final sched = (j['schedules'] as Map?) ?? const {};
+      final period = (sched['periods'] as Map?) ?? const {};
+      final loc = (sched['locations'] as Map?) ?? const {};
+      final teacher = (sched['teacher'] as Map?) ?? const {};
+      out.add(
+        PhyExpMyExperiment(
+          user2projectId: (j['id'] as num?)?.toInt() ?? 0,
+          name: (project['name'] ?? '').toString(),
+          date: (sched['date'] ?? '').toString(),
+          periodName: (period['name'] ?? '').toString(),
+          startTime: (period['start_time'] ?? '').toString(),
+          endTime: (period['end_time'] ?? '').toString(),
+          location: (loc['name'] ?? '').toString(),
+          teacher: (teacher['name'] ?? '').toString(),
+          status: (j['schedule_status'] ?? '').toString(),
+        ),
+      );
     }
     out.sort((a, b) => a.start.compareTo(b.start));
     return out;
