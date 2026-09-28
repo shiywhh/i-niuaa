@@ -147,6 +147,17 @@ class PhyExpMyExperiment {
   DateTime get start =>
       DateTime.tryParse('${date}T$startTime') ?? DateTime(1970);
 
+  /// 三态：未开始 / 进行中 / 已结束（按当天起止时刻判定）
+  String get liveStatus {
+    final s0 = DateTime.tryParse('${date}T$startTime');
+    final e0 = DateTime.tryParse('${date}T$endTime');
+    final now = DateTime.now();
+    if (s0 == null || e0 == null) return '未开始';
+    if (now.isBefore(s0)) return '未开始';
+    if (now.isAfter(e0)) return '已结束';
+    return '进行中';
+  }
+
   String get statusText => switch (status) {
     'elected' => '已选',
     'scheduled' => '已排课',

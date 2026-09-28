@@ -360,26 +360,25 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
     String? failure;
     String? savePath;
     try {
-      final res = await Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 30),
-          headers: {'User-Agent': 'i-niuaa'},
-        ),
-      ).get<List<int>>(
-        _client.reportPaperUrl(m.user2projectId),
-        options: Options(responseType: ResponseType.bytes),
-        onReceiveProgress: (r, t) => progress.value = [r, t],
-        cancelToken: token,
-      );
+      final res =
+          await Dio(
+            BaseOptions(
+              connectTimeout: const Duration(seconds: 10),
+              receiveTimeout: const Duration(seconds: 30),
+              headers: {'User-Agent': 'i-niuaa'},
+            ),
+          ).get<List<int>>(
+            _client.reportPaperUrl(m.user2projectId),
+            options: Options(responseType: ResponseType.bytes),
+            onReceiveProgress: (r, t) => progress.value = [r, t],
+            cancelToken: token,
+          );
       // 文件名优先取响应头，取不到按实验名兜底（默认 PDF）
       var name = 'phyexp_${m.user2projectId}';
       final cd = res.headers.value('content-disposition');
       final m2 = cd == null
           ? null
-          : RegExp(
-              r"""filename\*?=(?:UTF-8'')?"?([^;"]+)""",
-            ).firstMatch(cd);
+          : RegExp(r"""filename\*?=(?:UTF-8'')?"?([^;"]+)""").firstMatch(cd);
       if (m2 != null) {
         name = m2.group(1)!;
       } else if (m.name.isNotEmpty) {
@@ -412,16 +411,14 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
       if (Platform.isAndroid) {
         final res = await OpenFilex.open(savePath!);
         if (mounted && res.type != ResultType.done) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('已下载：$savePath（无法直接打开）')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('已下载：$savePath（无法直接打开）')));
         }
       } else if (Platform.isWindows) {
-        await Process.start(
-          'explorer.exe',
-          [savePath!],
-          mode: ProcessStartMode.detached,
-        );
+        await Process.start('explorer.exe', [
+          savePath!,
+        ], mode: ProcessStartMode.detached);
       } else if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -523,59 +520,100 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          m.name,
+                                          style: const TextStyle(
+                                            fontSize: 13.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF2E7D32),
+                                          ),
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: m.liveStatus == '进行中'
+                                              ? const Color(0x1AB8860B)
+                                              : m.liveStatus == '已结束'
+                                              ? const Color(0x14000000)
+                                              : const Color(0x142E7D32),
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          m.liveStatus,
+                                          style: TextStyle(
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: m.liveStatus == '进行中'
+                                                ? const Color(0xFFB8860B)
+                                                : m.liveStatus == '已结束'
+                                                ? Colors.black45
+                                                : const Color(0xFF2E7D32),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 3),
                                   Text(
-                                    m.name,
-                                    style: const TextStyle(
-                                      fontSize: 13.5,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF2E7D32),
-                                    ),
+                                    '${m.date} ${m.startTime}-${m.endTime}',
+                                    style: const TextStyle(fontSize: 12.5),
                                   ),
                                   const SizedBox(height: 3),
                                   Text(
                                     [
-                                      '${m.date} ${m.startTime}-${m.endTime}',
                                       if (m.location.isNotEmpty) m.location,
                                       if (m.teacher.isNotEmpty) m.teacher,
-                                    ].join(' · '),
+                                      if (m.periodName.isNotEmpty) m.periodName,
+                                    ].where((x) => x.isNotEmpty).join(' · '),
                                     style: const TextStyle(
                                       fontSize: 11.5,
                                       color: Colors.black54,
                                     ),
                                   ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      OutlinedButton(
-                                        onPressed: () => _cancelMine(m),
-                                        style: OutlinedButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
+                                  if (m.liveStatus == '未开始') ...[
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        OutlinedButton(
+                                          onPressed: () => _cancelMine(m),
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 14,
+                                            ),
+                                            minimumSize: const Size(0, 32),
                                           ),
-                                          minimumSize: const Size(0, 32),
-                                        ),
-                                        child: const Text(
-                                          '取消',
-                                          style: TextStyle(fontSize: 12),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      FilledButton.tonal(
-                                        onPressed: () => _downloadReport(m),
-                                        style: FilledButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
+                                          child: const Text(
+                                            '取消',
+                                            style: TextStyle(fontSize: 12),
                                           ),
-                                          minimumSize: const Size(0, 32),
                                         ),
-                                        child: const Text(
-                                          '下载',
-                                          style: TextStyle(fontSize: 12),
+                                        const SizedBox(width: 8),
+                                        FilledButton.tonal(
+                                          onPressed: () => _downloadReport(m),
+                                          style: FilledButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 14,
+                                            ),
+                                            minimumSize: const Size(0, 32),
+                                          ),
+                                          child: const Text(
+                                            '下载',
+                                            style: TextStyle(fontSize: 12),
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
+                                      ],
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -674,6 +712,7 @@ class _PhyExpLessonsPageState extends State<PhyExpLessonsPage> {
   String? _error;
   var _bookingScheduleId = -1;
   var _cancellingId = -1;
+  var _onlySelectable = true; // 选课时间过滤：隐藏已开始/已满场次
   Timer? _poll; // 余量自动轮询：30s 静默刷新
 
   @override
@@ -681,6 +720,18 @@ class _PhyExpLessonsPageState extends State<PhyExpLessonsPage> {
     super.initState();
     _load();
     _poll = Timer.periodic(const Duration(seconds: 30), (_) => _silentLoad());
+  }
+
+  /// 选课时间过滤后的可见场次：开关开启时隐藏已开始/已满的
+  List<PhyExpLesson> get _visibleLessons {
+    if (!_onlySelectable) return _lessons;
+    final now = DateTime.now();
+    return _lessons.where((l) {
+      if (l.bookedByMe) return true; // 自己已选的保留（可退）
+      final start = DateTime.tryParse('${l.date}T${l.startTime}');
+      if (start == null) return true;
+      return start.isAfter(now) && l.remaining > 0;
+    }).toList();
   }
 
   /// 静默刷新：不闪加载态，只更新数据
@@ -842,7 +893,25 @@ class _PhyExpLessonsPageState extends State<PhyExpLessonsPage> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
                 children: [
-                  for (final lesson in _lessons)
+                  CheckboxListTile(
+                    title: const Text(
+                      '仅显示可选',
+                      style: TextStyle(fontSize: 13.5),
+                    ),
+                    subtitle: Text(
+                      '隐藏已开始或已满的场次（${_visibleLessons.length}/${_lessons.length}）',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.black45,
+                      ),
+                    ),
+                    value: _onlySelectable,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                    onChanged: (v) =>
+                        setState(() => _onlySelectable = v ?? true),
+                  ),
+                  for (final lesson in _visibleLessons)
                     Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       elevation: 0,
@@ -867,11 +936,16 @@ class _PhyExpLessonsPageState extends State<PhyExpLessonsPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    '${lesson.date} ${lesson.startTime}-${lesson.endTime}',
+                                    lesson.date,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 14,
                                     ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    '${lesson.startTime} - ${lesson.endTime}',
+                                    style: const TextStyle(fontSize: 12.5),
                                   ),
                                   const SizedBox(height: 3),
                                   Text(
@@ -880,12 +954,20 @@ class _PhyExpLessonsPageState extends State<PhyExpLessonsPage> {
                                         lesson.location,
                                       if (lesson.teacher.isNotEmpty)
                                         lesson.teacher,
-                                      '${lesson.periodName} · '
-                                          '已选 ${lesson.currentStudent}/${lesson.maxStudent}',
-                                    ].join(' · '),
+                                      lesson.periodName,
+                                    ].where((x) => x.isNotEmpty).join(' · '),
                                     style: const TextStyle(
                                       fontSize: 11.5,
                                       color: Colors.black45,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    '已选 ${lesson.currentStudent}/'
+                                    '${lesson.maxStudent}',
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      color: Colors.black54,
                                     ),
                                   ),
                                 ],
