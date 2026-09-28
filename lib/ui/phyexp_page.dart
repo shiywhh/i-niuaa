@@ -559,6 +559,17 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
                                       color: Colors.black54,
                                     ),
                                   ),
+                                  // 进行中/已结束：签到、报告、答题等在微信端完成
+                                  if (m.liveStatus != '未开始') ...[
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      '请前往微信进一步操作',
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        color: Colors.black38,
+                                      ),
+                                    ),
+                                  ],
                                   if (m.liveStatus == '未开始') ...[
                                     const SizedBox(height: 8),
                                     Row(
