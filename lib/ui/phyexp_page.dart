@@ -7,9 +7,12 @@
 // Deps: dio, crypto, flutter_secure_storage
 
 import 'dart:async';
+import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../core/phyexp_client.dart';
 
@@ -290,16 +293,146 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
     }
   }
 
-  /// 下载实验报告/讲义：走系统浏览器（token 查询参数口径与网页一致）
+  /// 下载实验报告/讲义：应用内下载（进度框）-> 完成后用系统程序打开
   Future<void> _downloadReport(PhyExpMyExperiment m) async {
+    // 保存位置：Android 用应用专属外部目录（无需权限），Windows 用下载目录
+    String dirPath;
+    if (Platform.isAndroid) {
+      final dirs = await getExternalStorageDirectories();
+      dirPath = dirs?.first.path ?? (await getTemporaryDirectory()).path;
+    } else if (Platform.isWindows) {
+      dirPath =
+          (await getDownloadsDirectory())?.path ??
+          (await getTemporaryDirectory()).path;
+    } else {
+      dirPath = (await getTemporaryDirectory()).path;
+    }
+    final token = CancelToken();
+    final progress = ValueNotifier<List<int>>(const [0, 0]);
+    var dialogOpen = true;
+    BuildContext? dialogCtx;
+
+    void closeProgress() {
+      if (!dialogOpen) return;
+      dialogOpen = false;
+      final ctx = dialogCtx;
+      if (ctx != null && ctx.mounted) Navigator.pop(ctx);
+    }
+
+    if (!mounted) return; // 目录解析期间页面可能已退出
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        dialogCtx = ctx;
+        return AlertDialog(
+          title: const Text('下载文件'),
+          content: ValueListenableBuilder<List<int>>(
+            valueListenable: progress,
+            builder: (_, v, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LinearProgressIndicator(value: v[1] > 0 ? v[0] / v[1] : null),
+                const SizedBox(height: 10),
+                Text(
+                  v[1] > 0
+                      ? '${(v[0] / 1024).toStringAsFixed(0)} / ${(v[1] / 1024).toStringAsFixed(0)} KB'
+                      : '连接中…',
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                token.cancel('用户取消');
+                closeProgress();
+              },
+              child: const Text('取消'),
+            ),
+          ],
+        );
+      },
+    );
+
+    String? failure;
+    String? savePath;
     try {
-      final uri = Uri.parse(_client.reportPaperUrl(m.user2projectId));
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      final res = await Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 30),
+          headers: {'User-Agent': 'i-niuaa'},
+        ),
+      ).get<List<int>>(
+        _client.reportPaperUrl(m.user2projectId),
+        options: Options(responseType: ResponseType.bytes),
+        onReceiveProgress: (r, t) => progress.value = [r, t],
+        cancelToken: token,
+      );
+      // 文件名优先取响应头，取不到按实验名兜底（默认 PDF）
+      var name = 'phyexp_${m.user2projectId}';
+      final cd = res.headers.value('content-disposition');
+      final m2 = cd == null
+          ? null
+          : RegExp(
+              r"""filename\*?=(?:UTF-8'')?"?([^;"]+)""",
+            ).firstMatch(cd);
+      if (m2 != null) {
+        name = m2.group(1)!;
+      } else if (m.name.isNotEmpty) {
+        name = m.name;
+      }
+      if (!name.contains('.')) name = '$name.pdf';
+      name = name.replaceAll(RegExp(r'[\/:*?"<>|]'), '_');
+      savePath = '$dirPath/$name';
+      final f = File(savePath);
+      if (f.existsSync()) f.deleteSync();
+      f.writeAsBytesSync(res.data!);
+    } on DioException catch (e) {
+      if (e.type != DioExceptionType.cancel) failure = '下载失败，请重试';
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('无法打开下载链接')));
+      failure = '下载失败，请重试';
+    }
+    closeProgress();
+    if (token.isCancelled) return;
+    if (failure != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(failure)));
+      }
+      return;
+    }
+
+    // 打开文件：Android 系统查看器，Windows 默认程序
+    try {
+      if (Platform.isAndroid) {
+        final res = await OpenFilex.open(savePath!);
+        if (mounted && res.type != ResultType.done) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已下载：$savePath（无法直接打开）')),
+          );
+        }
+      } else if (Platform.isWindows) {
+        await Process.start(
+          'explorer.exe',
+          [savePath!],
+          mode: ProcessStartMode.detached,
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('已下载：$savePath')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('已下载：\$savePath（打开失败：\$e）')));
+      }
     }
   }
 
