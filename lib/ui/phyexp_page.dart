@@ -9,6 +9,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/phyexp_client.dart';
 
@@ -66,6 +67,7 @@ class _PhyExpLoginFormState extends State<_PhyExpLoginForm> {
   var _remember = true;
   var _busy = false;
   String? _error;
+  String _campus = PhyExpClient.instance.campus;
 
   @override
   void dispose() {
@@ -87,6 +89,7 @@ class _PhyExpLoginFormState extends State<_PhyExpLoginForm> {
       _error = null;
     });
     try {
+      await PhyExpClient.instance.setCampus(_campus);
       await PhyExpClient.instance.login(code, pwd, remember: _remember);
       if (!mounted) return;
       widget.onLoggedIn();
@@ -112,13 +115,25 @@ class _PhyExpLoginFormState extends State<_PhyExpLoginForm> {
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
         ),
-        const Center(
+        Center(
           child: Text(
-            '将军路校区 · phyexp.nuaa.edu.cn',
-            style: TextStyle(fontSize: 12, color: Colors.black45),
+            '$_campus校区 · phyexp.nuaa.edu.cn',
+            style: const TextStyle(fontSize: 12, color: Colors.black45),
           ),
         ),
         const SizedBox(height: 24),
+        SegmentedButton<String>(
+          segments: [
+            for (final c in phyexpCampuses.keys)
+              ButtonSegment(
+                value: c,
+                label: Text(c, style: const TextStyle(fontSize: 12)),
+              ),
+          ],
+          selected: {_campus},
+          onSelectionChanged: (sel) => setState(() => _campus = sel.first),
+        ),
+        const SizedBox(height: 16),
         TextField(
           controller: _codeCtrl,
           keyboardType: TextInputType.number,
@@ -238,6 +253,56 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
     }
   }
 
+  Future<void> _cancelMine(PhyExpMyExperiment m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认退课'),
+        content: Text(
+          '${m.name}\n'
+          '${m.date} ${m.startTime}-${m.endTime}\n\n确定退掉这场？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _client.cancel(m.user2projectId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已退课')));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('退课失败：$e')));
+    }
+  }
+
+  /// 下载实验报告/讲义：走系统浏览器（token 查询参数口径与网页一致）
+  Future<void> _downloadReport(PhyExpMyExperiment m) async {
+    try {
+      final uri = Uri.parse(_client.reportPaperUrl(m.user2projectId));
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('无法打开下载链接')));
+    }
+  }
+
   Future<void> _logout() async {
     await _client.logout();
     if (!mounted) return;
@@ -344,6 +409,39 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
                                       fontSize: 11.5,
                                       color: Colors.black54,
                                     ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      OutlinedButton(
+                                        onPressed: () => _cancelMine(m),
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                          ),
+                                          minimumSize: const Size(0, 32),
+                                        ),
+                                        child: const Text(
+                                          '取消',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      FilledButton.tonal(
+                                        onPressed: () => _downloadReport(m),
+                                        style: FilledButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                          ),
+                                          minimumSize: const Size(0, 32),
+                                        ),
+                                        child: const Text(
+                                          '下载',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),

@@ -19,7 +19,16 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 const phyexpOrigin = 'https://phyexp.nuaa.edu.cn';
-const phyexpApiBase = '$phyexpOrigin/api';
+
+/// 三个入口：将军路 /tianmuhu 天目湖 /yywlx 应用物理（API 基址同构）
+const phyexpCampuses = <String, String>{
+  '将军路': '/api',
+  '天目湖': '/tianmuhu/api',
+  '应用物理': '/yywlx/api',
+};
+
+String phyexpApiBaseFor(String campus) =>
+    '$phyexpOrigin${phyexpCampuses[campus] ?? '/api'}';
 
 class PhyExpUser {
   final String token; // 原始 JWT（不带 Bearer 前缀）
@@ -156,16 +165,25 @@ class PhyExpClient {
   static const _kCode = 'phyexp_code';
   static const _kName = 'phyexp_name';
   static const _kPassword = 'phyexp_password'; // 记住密码时才存
+  static const _kCampus = 'phyexp_campus';
+
+  /// 实验报告/讲义下载地址（token 走查询参数，与网页口径一致）
+  String reportPaperUrl(int user2projectId) =>
+      '$phyexpOrigin${phyexpCampuses[campus] ?? '/api'}'
+      '/report-api/report_paper/$user2projectId?token=${user!.token}';
 
   Dio? _dio;
   PhyExpUser? user;
   String? savedPassword; // 记住密码：401 自动重登
+  String campus = '将军路';
 
   bool get loggedIn => user != null;
 
+  String get apiBase => phyexpApiBaseFor(campus);
+
   Dio get dio => _dio ??= Dio(
     BaseOptions(
-      baseUrl: phyexpApiBase,
+      baseUrl: apiBase,
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 15),
       headers: {'User-Agent': 'i-niuaa'},
@@ -175,6 +193,8 @@ class PhyExpClient {
   /// 恢复登录态
   Future<bool> restore() async {
     try {
+      campus = await _storage.read(key: _kCampus) ?? '将军路';
+      _dio = null; // 校区决定 baseUrl，重建
       final token = await _storage.read(key: _kToken);
       final uid = await _storage.read(key: _kUserId);
       final code = await _storage.read(key: _kCode);
@@ -191,6 +211,16 @@ class PhyExpClient {
     } catch (_) {
       return false;
     }
+  }
+
+  /// 切换校区：清登录态（各校区账号独立），持久化选择
+  Future<void> setCampus(String value) async {
+    if (campus == value) return;
+    campus = phyexpCampuses.containsKey(value) ? value : '将军路';
+    user = null;
+    _dio = null;
+    await _storage.write(key: _kCampus, value: campus);
+    await logout(keepCampus: true);
   }
 
   /// 登录：code + MD5(password) -> JWT。[remember] 为真时保存密码用于 401 重登
@@ -231,11 +261,14 @@ class PhyExpClient {
     }
   }
 
-  Future<void> logout() async {
+  Future<void> logout({bool keepCampus = false}) async {
     user = null;
     savedPassword = null;
     for (final k in [_kToken, _kUserId, _kCode, _kName, _kPassword]) {
       await _storage.delete(key: k);
+    }
+    if (!keepCampus) {
+      await _storage.delete(key: _kCampus);
     }
   }
 
