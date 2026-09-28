@@ -207,42 +207,50 @@ class PhyExpClient {
   Options _auth() =>
       Options(headers: {'Authorization': 'Bearer ${user!.token}'});
 
-  /// 带鉴权 GET；401 且存有密码时重登一次再试
-  Future<dynamic> _get(String path, {Map<String, dynamic>? query}) async {
+  /// 用记住的密码重登并刷新 token；失败抛异常
+  Future<void> _relogin() async {
+    final res = await dio.post(
+      '/rest/rpc/login',
+      data:
+          'code=${user!.code}&password=${md5.convert(utf8.encode(savedPassword!))}',
+      options: Options(contentType: Headers.formUrlEncodedContentType),
+    );
+    if (res.statusCode == 200 && res.data is Map && res.data['token'] != null) {
+      user = PhyExpUser(
+        token: res.data['token'] as String,
+        userId: user!.userId,
+        code: user!.code,
+        name: user!.name,
+      );
+      await _storage.write(key: _kToken, value: user!.token);
+    } else {
+      throw Exception('重新登录失败');
+    }
+  }
+
+  /// 带鉴权请求；401 且存有密码时重登一次再试。
+  /// [fn] 接收挂好 Authorization 的 Options，自行决定校验与取值
+  Future<dynamic> _authed(
+    Future<Response<dynamic>> Function(Options o) fn,
+  ) async {
     try {
-      final res = await dio.get(path, queryParameters: query, options: _auth());
+      final res = await fn(_auth());
       return res.data;
     } on DioException catch (e) {
       if (e.response?.statusCode == 401 &&
           savedPassword != null &&
           user != null) {
-        final res = await dio.post(
-          '/rest/rpc/login',
-          data:
-              'code=${user!.code}&password=${md5.convert(utf8.encode(savedPassword!))}',
-          options: Options(contentType: Headers.formUrlEncodedContentType),
-        );
-        if (res.statusCode == 200 &&
-            res.data is Map &&
-            res.data['token'] != null) {
-          user = PhyExpUser(
-            token: res.data['token'] as String,
-            userId: user!.userId,
-            code: user!.code,
-            name: user!.name,
-          );
-          await _storage.write(key: _kToken, value: user!.token);
-          final retry = await dio.get(
-            path,
-            queryParameters: query,
-            options: _auth(),
-          );
-          return retry.data;
-        }
+        await _relogin();
+        final res = await fn(_auth());
+        return res.data;
       }
       rethrow;
     }
   }
+
+  /// 带鉴权 GET
+  Future<dynamic> _get(String path, {Map<String, dynamic>? query}) =>
+      _authed((o) => dio.get(path, queryParameters: query, options: o));
 
   /// 开放学期（取第一个；含 since/to）
   Future<PhyExpSemester> openSemester() async {
@@ -406,20 +414,17 @@ class PhyExpClient {
 
   /// 选课（实测口径：form lesson_id + course_id，200 即成功）
   Future<void> book(int lessonId, int courseId) async {
-    final res = await dio.post(
-      '/report-api/electives',
-      data: 'lesson_id=$lessonId&course_id=$courseId',
-      options: Options(
-        contentType: Headers.formUrlEncodedContentType,
-        headers: {'Authorization': 'Bearer ${user!.token}'},
-        validateStatus: (s) => s != null && s < 500,
+    final body = await _authed(
+      (o) => dio.post(
+        '/report-api/electives',
+        data: 'lesson_id=$lessonId&course_id=$courseId',
+        options: Options(
+          contentType: Headers.formUrlEncodedContentType,
+          headers: o.headers,
+          validateStatus: (s) => s != null && s < 500,
+        ),
       ),
     );
-    if (res.statusCode != 200) {
-      throw Exception('选课失败（HTTP ${res.statusCode}）');
-    }
-    // 部分失败会 200 + 错误文案
-    final body = res.data;
     if (body is Map && body['message'] != null) {
       final msg = body['message'].toString();
       if (msg.contains('失败') || msg.contains('已满') || msg.contains('错误')) {
@@ -431,11 +436,13 @@ class PhyExpClient {
   /// 退课（实测口径：POST report-api/electives/`<user2project_id>`/cancel，
   /// 无请求体；响应 `{"status":false,"code":200,"message":"ok"}` 但退课成功）
   Future<void> cancel(int user2projectId) async {
-    final res = await dio.post(
-      '/report-api/electives/$user2projectId/cancel',
-      options: Options(
-        headers: {'Authorization': 'Bearer ${user!.token}'},
-        validateStatus: (s) => s != null && s < 500,
+    final res = await _authed(
+      (o) => dio.post(
+        '/report-api/electives/$user2projectId/cancel',
+        options: Options(
+          headers: o.headers,
+          validateStatus: (s) => s != null && s < 500,
+        ),
       ),
     );
     if (res.statusCode != 200) {
