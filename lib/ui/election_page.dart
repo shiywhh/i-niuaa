@@ -13,6 +13,7 @@ import '../core/current_semester.dart';
 import '../core/eams_client.dart';
 import '../core/models.dart';
 import '../core/session.dart';
+import 'phyexp_page.dart';
 
 class ElectionsPage extends StatelessWidget {
   const ElectionsPage({super.key});
@@ -20,7 +21,7 @@ class ElectionsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Column(
         children: [
           Material(
@@ -36,6 +37,7 @@ class ElectionsPage extends StatelessWidget {
                 Tab(text: '学期选课'),
                 Tab(text: '补选/重修'),
                 Tab(text: '未中选'),
+                Tab(text: '大物实验'),
               ],
             ),
           ),
@@ -45,6 +47,7 @@ class ElectionsPage extends StatelessWidget {
                 ElectGrabScreen(),
                 ElectCatalogScreen(),
                 ElectBinScreen(),
+                PhyExpScreen(),
               ],
             ),
           ),
