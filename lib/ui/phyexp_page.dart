@@ -733,51 +733,49 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
                         ),
                       ),
                       for (final e in _experiments)
-                        Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          elevation: 0,
-                          clipBehavior: Clip.antiAlias,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            side: BorderSide(
-                              color: e.elected
-                                  ? const Color(0x552E7D32)
-                                  : Colors.black12,
+                        if (!e.elected)
+                          Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            elevation: 0,
+                            clipBehavior: Clip.antiAlias,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              side: const BorderSide(color: Colors.black12),
                             ),
-                          ),
-                          child: ListTile(
-                            title: Text(
-                              e.name,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
+                            child: ListTile(
+                              title: Text(
+                                e.name,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                            ),
-                            subtitle: Text(
-                              e.elected ? '已选实验' : (e.optional ? '选修' : '必修'),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: e.elected
-                                    ? const Color(0xFF2E7D32)
-                                    : Colors.black45,
+                              subtitle: Text(
+                                _counts[e.projectId] == null
+                                    ? '场次统计加载中…'
+                                    : '${_counts[e.projectId]![0]}节未选满，'
+                                          '${_counts[e.projectId]![1]}节未冲突',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black45,
+                                ),
                               ),
-                            ),
-                            trailing: const Icon(
-                              Icons.chevron_right,
-                              color: Colors.black26,
-                            ),
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => PhyExpLessonsPage(
-                                  experiment: e,
-                                  course: _course!,
-                                  semester: _semester!,
+                              trailing: const Icon(
+                                Icons.chevron_right,
+                                color: Colors.black26,
+                              ),
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => PhyExpLessonsPage(
+                                    experiment: e,
+                                    course: _course!,
+                                    semester: _semester!,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
                     ],
                   ),
                 ),
@@ -1000,13 +998,6 @@ class _PhyExpLessonsPageState extends State<PhyExpLessonsPage> {
                       '仅显示可选',
                       style: TextStyle(fontSize: 13.5),
                     ),
-                    subtitle: Text(
-                      '隐藏已开始或已满的场次（${_visibleLessons.length}/${_lessons.length}）',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.black45,
-                      ),
-                    ),
                     value: _onlySelectable,
                     controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
@@ -1072,6 +1063,18 @@ class _PhyExpLessonsPageState extends State<PhyExpLessonsPage> {
                                       color: Colors.black54,
                                     ),
                                   ),
+                                  if (_EamsTimetable.conflicts(
+                                    lesson.start,
+                                    lesson.end,
+                                  ))
+                                    const Text(
+                                      '与课表冲突',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFFB3261E),
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
