@@ -18,7 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/current_semester.dart';
 import '../core/models.dart';
-import '../core/timetable_ics.dart' show TimetableSnapshot, unitToPeriod;
+import '../core/timetable_ics.dart' show unitToPeriod;
 import '../core/period_times.dart';
 import '../core/phyexp_client.dart';
 
