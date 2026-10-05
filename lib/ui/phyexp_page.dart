@@ -271,7 +271,7 @@ class _PhyExpHomeState extends State<_PhyExpHome>
   late final TabController _tabCtrl = TabController(
     length: 2,
     vsync: this,
-  ); // 0 我的实验 / 1 全部实验
+  ); // 0 全部实验 / 1 我的实验
 
   @override
   void initState() {
@@ -326,9 +326,11 @@ class _PhyExpHomeState extends State<_PhyExpHome>
         _counts.clear();
       });
       if (!mounted) return;
-      // 逐实验拉场次算"未选满/未冲突"数（已选的不算），4 个并发一批
+      // 逐实验拉场次算"未选满/未冲突"（只数可选节次：未开始且未满），
+      // 已选的不算；4 个并发一批
       await _EamsTimetable.load();
       await PeriodTimesStore.instance.ensureLoaded();
+      final now = DateTime.now();
       final pool = exps.where((e) => !e.elected).toList();
       for (var i = 0; i < pool.length; i += 4) {
         final batch = pool.skip(i).take(4).toList();
@@ -347,20 +349,17 @@ class _PhyExpHomeState extends State<_PhyExpHome>
         );
         if (!mounted) return;
         for (var k = 0; k < batch.length; k++) {
-          final ls = results[k];
-          final m = ls.where((l) => l.remaining > 0).length;
-          final n = ls
-              .where(
-                (l) =>
-                    l.remaining > 0 &&
-                    !_EamsTimetable.conflicts(l.start, l.end),
-              )
+          final selectable = results[k]
+              .where((l) => l.remaining > 0 && l.start.isAfter(now))
+              .toList();
+          final m = selectable.length;
+          final n = selectable
+              .where((l) => !_EamsTimetable.conflicts(l.start, l.end))
               .length;
           if (!mounted) return;
           setState(() => _counts[batch[k].projectId] = [m, n]);
         }
       }
-      if (!mounted) return;
       setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;
@@ -410,7 +409,6 @@ class _PhyExpHomeState extends State<_PhyExpHome>
 
   /// 下载实验报告/讲义：应用内下载（进度框）-> 完成后用系统程序打开
   Future<void> _downloadReport(PhyExpMyExperiment m) async {
-    // 保存位置：Android 用应用专属外部目录（无需权限），Windows 用下载目录
     String dirPath;
     if (Platform.isAndroid) {
       final dirs = await getExternalStorageDirectories();
@@ -434,7 +432,7 @@ class _PhyExpHomeState extends State<_PhyExpHome>
       if (ctx != null && ctx.mounted) Navigator.pop(ctx);
     }
 
-    if (!mounted) return; // 目录解析期间页面可能已退出
+    if (!mounted) return;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -452,7 +450,8 @@ class _PhyExpHomeState extends State<_PhyExpHome>
                 const SizedBox(height: 10),
                 Text(
                   v[1] > 0
-                      ? '${(v[0] / 1024).toStringAsFixed(0)} / ${(v[1] / 1024).toStringAsFixed(0)} KB'
+                      ? '${(v[0] / 1024).toStringAsFixed(0)} / '
+                            '${(v[1] / 1024).toStringAsFixed(0)} KB'
                       : '连接中…',
                   style: const TextStyle(fontSize: 12, color: Colors.black54),
                 ),
@@ -521,7 +520,6 @@ class _PhyExpHomeState extends State<_PhyExpHome>
       return;
     }
 
-    // 打开文件：Android 系统查看器，Windows 默认程序
     try {
       if (Platform.isAndroid) {
         final res = await OpenFilex.open(savePath!);
@@ -543,7 +541,7 @@ class _PhyExpHomeState extends State<_PhyExpHome>
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('已下载：\$savePath（打开失败：\$e）')));
+        ).showSnackBar(SnackBar(content: Text('已下载：$savePath（打开失败：$e）')));
       }
     }
   }
@@ -552,6 +550,13 @@ class _PhyExpHomeState extends State<_PhyExpHome>
     await _client.logout();
     if (!mounted) return;
     widget.onLogout();
+  }
+
+  /// 选课成功：回到首页并跳到「全部实验」页签，顺带刷新
+  void _onBookedFromLessons() {
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    _tabCtrl.animateTo(0);
+    _load();
   }
 
   @override
@@ -583,8 +588,8 @@ class _PhyExpHomeState extends State<_PhyExpHome>
             unselectedLabelColor: Colors.black54,
             indicatorColor: Theme.of(context).colorScheme.primary,
             tabs: const [
-              Tab(text: '我的实验'),
               Tab(text: '全部实验'),
+              Tab(text: '我的实验'),
             ],
           ),
         ),
@@ -608,271 +613,227 @@ class _PhyExpHomeState extends State<_PhyExpHome>
                 )
               : TabBarView(
                   controller: _tabCtrl,
-                  children: [
-                    // ---- 我的实验 ----
-                    RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
-                            child: Text(
-                              '${_course!.courseName}（${_semester!.name}）',
-                              style: const TextStyle(
-                                fontSize: 12.5,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ),
-                          if (_mine.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.all(24),
-                              child: Center(
-                                child: Text(
-                                  '还没有已选的实验',
-                                  style: TextStyle(color: Colors.black38),
-                                ),
-                              ),
-                            ),
-                          if (_mine.isNotEmpty) ...[
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
-                              child: Text(
-                                '我的实验（${_mine.length}）',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            for (final m in _mine)
-                              Card(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                color: const Color(0x142E7D32),
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                  side: const BorderSide(
-                                    color: Color(0x552E7D32),
-                                  ),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 10,
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              m.name,
-                                              style: const TextStyle(
-                                                fontSize: 13.5,
-                                                fontWeight: FontWeight.bold,
-                                                color: Color(0xFF2E7D32),
-                                              ),
-                                            ),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: m.liveStatus == '进行中'
-                                                  ? const Color(0x1AB8860B)
-                                                  : m.liveStatus == '已结束'
-                                                  ? const Color(0x14000000)
-                                                  : const Color(0x142E7D32),
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                            ),
-                                            child: Text(
-                                              m.liveStatus,
-                                              style: TextStyle(
-                                                fontSize: 10.5,
-                                                fontWeight: FontWeight.bold,
-                                                color: m.liveStatus == '进行中'
-                                                    ? const Color(0xFFB8860B)
-                                                    : m.liveStatus == '已结束'
-                                                    ? Colors.black45
-                                                    : const Color(0xFF2E7D32),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        '${m.date} ${m.startTime}-${m.endTime}',
-                                        style: const TextStyle(fontSize: 12.5),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        [
-                                              if (m.location.isNotEmpty)
-                                                m.location,
-                                              if (m.teacher.isNotEmpty)
-                                                m.teacher,
-                                              if (m.periodName.isNotEmpty)
-                                                m.periodName,
-                                            ]
-                                            .where((x) => x.isNotEmpty)
-                                            .join(' · '),
-                                        style: const TextStyle(
-                                          fontSize: 11.5,
-                                          color: Colors.black54,
-                                        ),
-                                      ),
-                                      // 进行中/已结束：签到、报告、答题等在微信端完成
-                                      if (m.liveStatus != '未开始') ...[
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          '请前往微信进一步操作',
-                                          style: const TextStyle(
-                                            fontSize: 11.5,
-                                            color: Colors.black38,
-                                          ),
-                                        ),
-                                      ],
-                                      if (m.liveStatus == '未开始') ...[
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            OutlinedButton(
-                                              onPressed: () => _cancelMine(m),
-                                              style: OutlinedButton.styleFrom(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 14,
-                                                    ),
-                                                minimumSize: const Size(0, 32),
-                                              ),
-                                              child: const Text(
-                                                '取消',
-                                                style: TextStyle(fontSize: 12),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            FilledButton.tonal(
-                                              onPressed: () =>
-                                                  _downloadReport(m),
-                                              style: FilledButton.styleFrom(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 14,
-                                                    ),
-                                                minimumSize: const Size(0, 32),
-                                              ),
-                                              child: const Text(
-                                                '下载',
-                                                style: TextStyle(fontSize: 12),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            const SizedBox(height: 12),
-                          ],
-                        ],
-                      ),
-                    ),
-                    // ---- 全部实验 ----
-                    RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
-                            child: Text(
-                              '${_course!.courseName}（${_semester!.name}）',
-                              style: const TextStyle(
-                                fontSize: 12.5,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
-                            child: Text(
-                              '全部实验',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          for (final e in _experiments)
-                            if (!e.elected)
-                              Card(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                elevation: 0,
-                                clipBehavior: Clip.antiAlias,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                  side: const BorderSide(color: Colors.black12),
-                                ),
-                                child: ListTile(
-                                  title: Text(
-                                    e.name,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    _counts[e.projectId] == null
-                                        ? '场次统计加载中…'
-                                        : '${_counts[e.projectId]![0]}节未选满，'
-                                              '${_counts[e.projectId]![1]}节未冲突',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black45,
-                                    ),
-                                  ),
-                                  trailing: const Icon(
-                                    Icons.chevron_right,
-                                    color: Colors.black26,
-                                  ),
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => PhyExpLessonsPage(
-                                        experiment: e,
-                                        course: _course!,
-                                        semester: _semester!,
-                                        onBooked: _onBookedFromLessons,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                        ],
-                      ),
-                    ),
-                  ],
+                  children: [_buildAllTab(), _buildMineTab()],
                 ),
         ),
       ],
     );
   }
 
-  /// 选课成功：回到首页并跳到「全部实验」页签，顺带刷新
-  void _onBookedFromLessons() {
-    Navigator.of(context).popUntil((r) => r.isFirst);
-    _tabCtrl.animateTo(1);
-    _load();
+  // ---- 全部实验页签 ----
+
+  Widget _buildAllTab() {
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
+            child: Text(
+              '${_course!.courseName}（${_semester!.name}）',
+              style: const TextStyle(fontSize: 12.5, color: Colors.black54),
+            ),
+          ),
+          for (final e in _experiments)
+            if (!e.elected)
+              Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                elevation: 0,
+                clipBehavior: Clip.antiAlias,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: Colors.black12),
+                ),
+                child: ListTile(
+                  title: Text(
+                    e.name,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: Text(
+                    _counts[e.projectId] == null
+                        ? '场次统计加载中…'
+                        : '${_counts[e.projectId]![0]}节未选满，'
+                              '${_counts[e.projectId]![1]}节未冲突',
+                    style: const TextStyle(fontSize: 12, color: Colors.black45),
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: Colors.black26,
+                  ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PhyExpLessonsPage(
+                        experiment: e,
+                        course: _course!,
+                        semester: _semester!,
+                        onBooked: _onBookedFromLessons,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+
+  // ---- 我的实验页签 ----
+
+  Widget _buildMineTab() {
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 0, 6),
+            child: Text(
+              '${_course!.courseName}（${_semester!.name}）',
+              style: const TextStyle(fontSize: 12.5, color: Colors.black54),
+            ),
+          ),
+          if (_mine.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(
+                child: Text(
+                  '还没有已选的实验',
+                  style: TextStyle(color: Colors.black38),
+                ),
+              ),
+            ),
+          for (final m in _mine)
+            Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              color: const Color(0x142E7D32),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: const BorderSide(color: Color(0x552E7D32)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            m.name,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF2E7D32),
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: m.liveStatus == '进行中'
+                                ? const Color(0x1AB8860B)
+                                : m.liveStatus == '已结束'
+                                ? const Color(0x14000000)
+                                : const Color(0x142E7D32),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            m.liveStatus,
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              color: m.liveStatus == '进行中'
+                                  ? const Color(0xFFB8860B)
+                                  : m.liveStatus == '已结束'
+                                  ? Colors.black45
+                                  : const Color(0xFF2E7D32),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${m.date} ${m.startTime}-${m.endTime}',
+                      style: const TextStyle(fontSize: 12.5),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      [
+                        if (m.location.isNotEmpty) m.location,
+                        if (m.teacher.isNotEmpty) m.teacher,
+                        if (m.periodName.isNotEmpty) m.periodName,
+                      ].where((x) => x.isNotEmpty).join(' · '),
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: Colors.black54,
+                      ),
+                    ),
+                    // 进行中/已结束：签到、报告、答题等在微信端完成
+                    if (m.liveStatus != '未开始') ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '请前往微信进一步操作',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Colors.black38,
+                        ),
+                      ),
+                    ],
+                    if (m.liveStatus == '未开始') ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          OutlinedButton(
+                            onPressed: () => _cancelMine(m),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                              ),
+                              minimumSize: const Size(0, 32),
+                            ),
+                            child: const Text(
+                              '取消',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.tonal(
+                            onPressed: () => _downloadReport(m),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                              ),
+                              minimumSize: const Size(0, 32),
+                            ),
+                            child: const Text(
+                              '下载',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
