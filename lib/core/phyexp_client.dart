@@ -560,10 +560,7 @@ class PhyExpClient {
       ),
     );
     // 实测：成功也是 {"status":false,"message":"ok"}，body 完全不可信；
-    // 唯一判据是 HTTP 状态——200 成功，重复预约/冲突等直接 500
-    if (res.statusCode == 500) {
-      throw Exception('选课失败：服务器拒绝了该请求（可能重复预约或与课表冲突）');
-    }
+    // 唯一判据是 HTTP 状态——200 成功，其余一律失败
     if (res.statusCode != 200) {
       throw Exception('选课失败（HTTP ${res.statusCode}）');
     }
