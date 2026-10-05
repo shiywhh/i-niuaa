@@ -18,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/current_semester.dart';
 import '../core/models.dart';
+import '../core/timetable_ics.dart' show TimetableSnapshot, unitToPeriod;
 import '../core/period_times.dart';
 import '../core/phyexp_client.dart';
 
@@ -64,11 +65,15 @@ class _EamsTimetable {
       if (span.weekday != lessonStart.weekday) continue;
       final ws = span.weekSet;
       if (ws.isNotEmpty && !ws.contains(week)) continue;
-      if (span.startUnit >= times.length || span.endUnit >= times.length) {
+      // unit -> 节号必须过映射（unit 6 = 第 5 节，午休错位），
+      // 直接拿 unit当下标会把下午课整体对错一小时
+      final p1 = unitToPeriod(span.startUnit);
+      final p2 = unitToPeriod(span.endUnit);
+      if (p1 == null || p2 == null || p1 > times.length || p2 > times.length) {
         continue;
       }
-      final sm = times[span.startUnit].startMinutes;
-      final em = times[span.endUnit].endMinutes;
+      final sm = times[p1 - 1].startMinutes;
+      final em = times[p2 - 1].endMinutes;
       final ss = DateTime(
         lessonStart.year,
         lessonStart.month,
