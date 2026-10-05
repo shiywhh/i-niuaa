@@ -118,6 +118,8 @@ class PhyExpLesson {
       (maxStudent - currentStudent).clamp(0, maxStudent).toInt();
 
   DateTime get start => DateTime.parse('${date}T$startTime');
+
+  DateTime get end => DateTime.tryParse('${date}T$endTime') ?? start;
 }
 
 /// 已选的实验（我的实验列表条目）
@@ -308,28 +310,30 @@ class PhyExpClient {
   }
 
   /// 带鉴权请求；401 且存有密码时重登一次再试。
-  /// [fn] 接收挂好 Authorization 的 Options，自行决定校验与取值
-  Future<dynamic> _authed(
+  /// 返回完整 Response（调用方自行取 data / statusCode）
+  Future<Response<dynamic>> _authed(
     Future<Response<dynamic>> Function(Options o) fn,
   ) async {
     try {
-      final res = await fn(_auth());
-      return res.data;
+      return await fn(_auth());
     } on DioException catch (e) {
       if (e.response?.statusCode == 401 &&
           savedPassword != null &&
           user != null) {
         await _relogin();
-        final res = await fn(_auth());
-        return res.data;
+        return await fn(_auth());
       }
       rethrow;
     }
   }
 
   /// 带鉴权 GET
-  Future<dynamic> _get(String path, {Map<String, dynamic>? query}) =>
-      _authed((o) => dio.get(path, queryParameters: query, options: o));
+  Future<dynamic> _get(String path, {Map<String, dynamic>? query}) async {
+    final res = await _authed(
+      (o) => dio.get(path, queryParameters: query, options: o),
+    );
+    return res.data;
+  }
 
   /// 开放学期（取第一个；含 since/to）
   Future<PhyExpSemester> openSemester() async {
@@ -544,22 +548,24 @@ class PhyExpClient {
 
   /// 选课（实测口径：form lesson_id + course_id，200 即成功）
   Future<void> book(int lessonId, int courseId) async {
-    final body = await _authed(
+    final res = await _authed(
       (o) => dio.post(
         '/report-api/electives',
         data: 'lesson_id=$lessonId&course_id=$courseId',
         options: Options(
           contentType: Headers.formUrlEncodedContentType,
           headers: o.headers,
-          validateStatus: (s) => s != null && s < 500,
+          validateStatus: (s) => s != null && s < 600,
         ),
       ),
     );
-    if (body is Map && body['message'] != null) {
-      final msg = body['message'].toString();
-      if (msg.contains('失败') || msg.contains('已满') || msg.contains('错误')) {
-        throw Exception(msg);
-      }
+    // 实测：成功也是 {"status":false,"message":"ok"}，body 完全不可信；
+    // 唯一判据是 HTTP 状态——200 成功，重复预约/冲突等直接 500
+    if (res.statusCode == 500) {
+      throw Exception('选课失败：服务器拒绝了该请求（可能重复预约或与课表冲突）');
+    }
+    if (res.statusCode != 200) {
+      throw Exception('选课失败（HTTP ${res.statusCode}）');
     }
   }
 
@@ -571,7 +577,7 @@ class PhyExpClient {
         '/report-api/electives/$user2projectId/cancel',
         options: Options(
           headers: o.headers,
-          validateStatus: (s) => s != null && s < 500,
+          validateStatus: (s) => s != null && s < 600,
         ),
       ),
     );

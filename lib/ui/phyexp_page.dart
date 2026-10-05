@@ -7,14 +7,87 @@
 // Deps: dio, crypto, flutter_secure_storage
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/current_semester.dart';
+import '../core/models.dart';
+import '../core/period_times.dart';
 import '../core/phyexp_client.dart';
+
+/// EAMS 课表快照（本地缓存）：用于判断物理实验场次与课表冲突
+class _EamsTimetable {
+  static List<CourseSpan>? _spans;
+  static DateTime? _anchor;
+  static var _loaded = false;
+
+  static Future<void> load() async {
+    if (_loaded) return;
+    _loaded = true;
+    try {
+      final p = await SharedPreferences.getInstance();
+      final semKey = p.getString('tt_last_sem') ?? await CurrentSemester.id();
+      if (semKey == null) return;
+      final cache = p.getString('tt_cache_v3_$semKey');
+      final anchorS = p.getString('tt_anchor_$semKey');
+      if (cache == null || anchorS == null) return;
+      final j = (jsonDecode(cache) as Map).cast<String, dynamic>();
+      final spans = (j['spans'] as List)
+          .map((e) => CourseSpan.fromJson((e as Map).cast<String, dynamic>()))
+          .toList();
+      final anchor = DateTime.tryParse(anchorS);
+      if (spans.isEmpty || anchor == null) return;
+      _spans = spans;
+      _anchor = anchor;
+    } catch (_) {}
+  }
+
+  /// 场次起止与 EAMS 课表任一上课时段重叠即为冲突；
+  /// 无课表缓存/无锚点时不算冲突（没法判就不拦）
+  static bool conflicts(DateTime lessonStart, DateTime lessonEnd) {
+    final spans = _spans;
+    final anchor = _anchor;
+    if (spans == null || anchor == null) return false;
+    final days = lessonStart
+        .difference(DateTime(anchor.year, anchor.month, anchor.day))
+        .inDays;
+    if (days < 0) return false;
+    final week = days ~/ 7 + 1;
+    final times = PeriodTimesStore.instance.times;
+    for (final span in spans) {
+      if (span.weekday != lessonStart.weekday) continue;
+      final ws = span.weekSet;
+      if (ws.isNotEmpty && !ws.contains(week)) continue;
+      if (span.startUnit >= times.length || span.endUnit >= times.length) {
+        continue;
+      }
+      final sm = times[span.startUnit].startMinutes;
+      final em = times[span.endUnit].endMinutes;
+      final ss = DateTime(
+        lessonStart.year,
+        lessonStart.month,
+        lessonStart.day,
+        sm ~/ 60,
+        sm % 60,
+      );
+      final se = DateTime(
+        lessonStart.year,
+        lessonStart.month,
+        lessonStart.day,
+        em ~/ 60,
+        em % 60,
+      );
+      if (ss.isBefore(lessonEnd) && lessonStart.isBefore(se)) return true;
+    }
+    return false;
+  }
+}
 
 class PhyExpScreen extends StatefulWidget {
   const PhyExpScreen({super.key});
@@ -188,6 +261,7 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
   PhyExpSemester? _semester;
   List<PhyExpExperiment> _experiments = [];
   List<PhyExpMyExperiment> _mine = [];
+  final Map<int, List<int>> _counts = {}; // projectId -> [未选满, 未冲突]
 
   @override
   void initState() {
@@ -225,8 +299,45 @@ class _PhyExpHomeState extends State<_PhyExpHome> {
         _course = course;
         _experiments = exps;
         _mine = mine;
-        _loading = false;
+        _counts.clear();
       });
+      if (!mounted) return;
+      // 逐实验拉场次算"未选满/未冲突"数（已选的不算），4 个并发一批
+      await _EamsTimetable.load();
+      await PeriodTimesStore.instance.ensureLoaded();
+      final pool = exps.where((e) => !e.elected).toList();
+      for (var i = 0; i < pool.length; i += 4) {
+        final batch = pool.skip(i).take(4).toList();
+        final results = await Future.wait(
+          batch
+              .map(
+                (e) => _client.lessons(
+                  projectId: e.projectId,
+                  courseId: course.courseId,
+                  userId: user.userId,
+                  classId: course.classId,
+                  semester: sem,
+                ),
+              )
+              .toList(),
+        );
+        if (!mounted) return;
+        for (var k = 0; k < batch.length; k++) {
+          final ls = results[k];
+          final m = ls.where((l) => l.remaining > 0).length;
+          final n = ls
+              .where(
+                (l) =>
+                    l.remaining > 0 &&
+                    !_EamsTimetable.conflicts(l.start, l.end),
+              )
+              .length;
+          if (!mounted) return;
+          setState(() => _counts[batch[k].projectId] = [m, n]);
+        }
+      }
+      if (!mounted) return;
+      setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;
       setState(() {
